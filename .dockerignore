@@ -4,3 +4,5 @@
 dist
 tests
 docs
+image-security
+.cache

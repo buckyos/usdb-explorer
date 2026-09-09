@@ -1,0 +1,81 @@
+name: Explorer Image Security
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        required: true
+        type: string
+      image_reference:
+        required: true
+        type: string
+      source_revision:
+        required: true
+        type: string
+      enforcement:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_revision }}
+          persist-credentials: false
+      - name: Bind scan to the exact source, image lock and platform
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+          IMAGE_REFERENCE: ${{ inputs.image_reference }}
+          SOURCE_REVISION: ${{ inputs.source_revision }}
+          ENFORCEMENT: ${{ inputs.enforcement }}
+        run: |
+          python3 scripts/image_security.py validate --name "$IMAGE_NAME" \
+            --image-reference "$IMAGE_REFERENCE" --source-revision "$SOURCE_REVISION" \
+            --enforcement "$ENFORCEMENT" --output-dir image-security
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan the immutable Linux amd64 image with complete findings
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: linux/amd64
+        with:
+          scan-type: image
+          image-ref: ${{ inputs.image_reference }}
+          scanners: vuln
+          vuln-type: os,library
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: false
+          format: json
+          output: image-security/trivy-image.json
+          exit-code: "0"
+          timeout: 15m
+          version: v0.74.0
+      - name: Convert the same scan to SARIF and bind evidence
+        run: |
+          trivy convert --format sarif --severity HIGH,CRITICAL \
+            --output image-security/trivy-image.sarif image-security/trivy-image.json
+          python3 scripts/image_security.py evidence --directory image-security \
+            --scanner-version "$(trivy --version | head -n 1)"
+          (cd image-security && sha256sum --check SHA256SUMS)
+      - name: Upload scan evidence before enforcing vulnerability findings
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: explorer-security-${{ inputs.image_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: image-security/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+      - name: Apply the selected enforcement mode
+        run: python3 scripts/image_security.py enforce --directory image-security

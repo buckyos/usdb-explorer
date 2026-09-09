@@ -39,6 +39,7 @@ jobs:
           python3 tests/test_network_contract.py
           python3 tests/test_migration.py
           python3 tests/test_prepare_release.py
+          python3 tests/test_image_security.py
           python3 explorer/package_release.py --check-network
           explorer/usdb-explorer --help
           explorer/usdb-public --help

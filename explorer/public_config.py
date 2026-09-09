@@ -61,6 +61,19 @@ def image_lock(root):
     return value
 
 
+def security_enforcement(network, requested=None):
+    """Keep findings advisory on testnet; never let a mainnet request weaken enforcement."""
+    if requested not in {None, "strict", "report-only"}:
+        raise ValueError("security enforcement must be strict or report-only")
+    if re.fullmatch(r"usdb-testnet-v[0-9]+", str(network)):
+        return requested or "report-only"
+    if re.fullmatch(r"usdb-mainnet-v[0-9]+", str(network)):
+        if requested == "report-only":
+            raise ValueError("mainnet security enforcement must remain strict")
+        return "strict"
+    raise ValueError("unsupported network security policy")
+
+
 def load_config(path, kit):
     """Normalize one private configuration without reading a node installation."""
     value = read_json(path)
@@ -98,9 +111,14 @@ def load_config(path, kit):
     if address.version != 4:
         raise ValueError("this deployment currently supports IPv4 host bindings")
     if ingress["exposure"] == "private" and not address.is_loopback:
-        raise ValueError("private previews must bind loopback; public exposure requires qualified images")
-    if ingress["exposure"] == "public" and (origin.scheme != "https" or not image_lock(kit)["qualified_for_public_exposure"]):
-        raise ValueError("public exposure requires HTTPS and qualified release images")
+        raise ValueError("private deployments must bind loopback")
+    if ingress["mode"] == "external" and not address.is_loopback:
+        raise ValueError("external ingress requires loopback bindings behind the HTTPS proxy")
+    if ingress["exposure"] == "public":
+        if origin.scheme != "https":
+            raise ValueError("public exposure requires HTTPS")
+        if security_enforcement(value["network"]) == "strict" and not image_lock(kit)["qualified_for_public_exposure"]:
+            raise ValueError("strict public exposure requires qualified release images")
     for key, default in {"web_port": 28080, "gateway_port": 28081, "http_port": 28080, "https_port": 28443}.items():
         ingress.setdefault(key, default)
         if type(ingress[key]) is not int or not 1 <= ingress[key] <= 65535:

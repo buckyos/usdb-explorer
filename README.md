@@ -27,6 +27,7 @@ explorer/usdb-explorer prepare --config /path/to/config.json --state-dir /path/t
 | `gateway/` | 独立 Go module：公共 RPC 策略与浏览器 API 适配 |
 | `scripts/prepare_release.py` | 本仓库的 annotated tag 准备工具 |
 | `.github/workflows/` | 独立 CI、构建草稿、手动 Publish |
+| `scripts/image_security.py` | 固定 digest 的镜像扫描计划、证据校验与可选强制门禁 |
 | `tests/` | 部署、安装、迁移、发布、网络契约和真实 Nginx 测试 |
 | `docs/` | 网络接口、发布与迁移说明、历史验收记录 |
 
@@ -60,5 +61,7 @@ gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref main \
 [发布与迁移](docs/release-and-migration.md)。普通开发 checkout 即使尚无 commit 也可生成明确标记
 `source_dirty` 的本地测试包；发布只接受通过 tag 构建的干净源码。
 
-第三方镜像仍沿用原有私有兼容性预览基线。本次迁移没有替代镜像安全、真实 archive、重组恢复、
-合约验证和钱包广播验收；原始结果见 [历史验收记录](docs/usdb-public-testnet-services-plan.md)。
+测试网采用镜像安全 `report-only` 模式，并允许显式配置 public + HTTPS。漏洞及未完成验收状态
+继续保留；扫描失败、digest/source 不符、证据损坏仍阻断发布。维护者可手工运行 strict 审查。
+完整策略见 [镜像安全与测试网发布](docs/image-security.md)。真实 archive、重组恢复、合约验证和
+钱包广播仍需独立验收；原始结果见 [历史验收记录](docs/usdb-public-testnet-services-plan.md)。

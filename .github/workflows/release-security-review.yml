@@ -1,0 +1,56 @@
+name: Explorer Security Review
+run-name: Explorer security review ${{ github.ref_name }} (${{ inputs.enforcement }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      gateway_image:
+        description: Immutable usdb-explorer-gateway digest built from the selected ref
+        required: true
+        type: string
+      enforcement:
+        description: Report-only records findings; strict also blocks unresolved High/Critical findings
+        required: true
+        type: choice
+        default: report-only
+        options: [report-only, strict]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      revision: ${{ steps.source.outputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Resolve the selected source commit
+        id: source
+        run: echo "revision=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+      - name: Plan the gateway and all dependencies from this source lock
+        id: plan
+        env:
+          GATEWAY_IMAGE: ${{ inputs.gateway_image }}
+          ENFORCEMENT: ${{ inputs.enforcement }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 scripts/image_security.py plan --gateway-image "$GATEWAY_IMAGE" \
+            --enforcement "$ENFORCEMENT"
+  security:
+    name: Review ${{ matrix.name }} image
+    needs: identity
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.identity.outputs.matrix) }}
+    uses: ./.github/workflows/release-image-security.yml
+    with:
+      image_name: ${{ matrix.name }}
+      image_reference: ${{ matrix.image_reference }}
+      source_revision: ${{ needs.identity.outputs.revision }}
+      enforcement: ${{ matrix.enforcement }}

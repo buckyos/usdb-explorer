@@ -86,6 +86,25 @@ class PublicServicesTests(unittest.TestCase):
         (certificates / "fullchain.pem").write_text("renewed fixture")
         PUBLIC.verify(self.state)
 
+    def test_testnet_public_https_is_advisory_without_claiming_image_qualification(self):
+        self.config["ingress"].update(explorer_url="https://explorer.example.com", exposure="public")
+        with mock.patch("builtins.print") as messages:
+            document = self.prepare()
+        self.assertTrue(any("report-only" in str(call) for call in messages.call_args_list))
+        self.assertEqual(CONFIG.read_json(self.state / "security-policy.json"),
+                         {"enforcement": "report-only", "qualified_for_public_exposure": False})
+        self.assertEqual(document["services"]["gateway"]["ports"], ["127.0.0.1:28081:8080"])
+        for name in ("backend", "postgres", "redis"):
+            self.assertNotIn("ports", document["services"][name])
+        self.config["ingress"]["bind_address"] = "0.0.0.0"
+        self.save()
+        with self.assertRaisesRegex(ValueError, "external ingress requires loopback"):
+            CONFIG.load_config(self.input, KIT)
+        self.config["network"] = "usdb-mainnet-v1"
+        self.save()
+        with self.assertRaisesRegex(ValueError, "supported USDB testnet"):
+            CONFIG.load_config(self.input, KIT)
+
     def test_config_rejects_typos_injection_unsafe_exposure_and_port_collision(self):
         base = deepcopy(self.config)
         changes = [("mode", "unknown"), ("bind_address", "0.0.0.0"), ("exposure", "public"),

@@ -10,10 +10,13 @@ balance-history 或 USDB indexer，也不需要 clone 源码。上游 USDB 节�
 网络身份来自 `networks/usdb-testnet-v0.json`，来源 USDB commit 与摘要由相邻的契约文件锁定；
 工具的版本是 `vX.Y.Z`，与节点 `usdb-testnet-v0-rN` 分开升级，网络 chain ID 不变。
 
-目前锁定的第三方镜像用于私有兼容性预览，`qualified_for_public_exposure=false`。
-`ingress.exposure=public` 会被拒绝；HTTPS 支持并不代表这些镜像已经通过公网安全准入。
+测试网镜像安全结果采用 `report-only`，允许显式设置 `ingress.exposure=public` 并使用 HTTPS。
+`qualified_for_public_exposure=false` 继续记录尚未完成的镜像验收，不会被自动改为已通过。
+新版本构建扫描完整镜像 lock；High/Critical 漏洞记录在 artifact 中，扫描和证据错误仍阻断发布。
+准备和启动服务时会提示未完成验收；默认配置仍为 private。外部 Nginx 模式必须使用 loopback
+后端绑定；bundled 公网模式可以监听公网地址，但必须配置 HTTPS 证书。
 升级到受维护镜像、实际 archive 重放、重组恢复、SourceDAO 合约验证、外部钱包发送交易仍需验收。
-外部 Nginx 由管理员控制，工具无法阻止管理员把私有预览端口转发到公网；预览阶段应保持访问限制。
+主网尚不支持；测试网的宽松模式不会自动适用于主网。
 
 ## 1. 安装与初始配置
 
@@ -66,6 +69,7 @@ GitHub Release 同时保留安装包、脚本及各自 `.sha256`，便于离线�
 | `rpc.transaction` | 已上链交易，用于 receipt/callTracer 采样；省略时最多向前查找 32 块 |
 | `ingress.explorer_url` | 浏览器的完整 HTTP(S) origin；钱包 RPC 自动为该 origin 加 `/rpc` |
 | `ingress.mode` | `external` 使用现有入口；`bundled` 启动内置 Nginx |
+| `ingress.exposure` | 默认 private；测试网 public 要求 HTTPS，镜像漏洞暂不强制阻断 |
 
 样例内区块 35 的交易是当前 testnet-v0 已知的 SourceDAO 部署交易。网络重置后需重新选择样本，
 工具会拒绝不属于当前 canonical chain 的交易，不能用空 trace 或空 receipt 代替验收。
@@ -149,7 +153,8 @@ sudo systemctl reload nginx
 例如私有 HTTPS 预览可使用 `https://explorer.internal:28443`，端口默认 28080/28443。
 域名 DNS/hosts 和证书信任须由测试环境正确配置，工具不提供跳过 TLS 校验选项。
 
-公网模式在镜像正式通过准入后使用 `exposure=public`、`bind_address=0.0.0.0`、80/443 和公网域名。
+测试网 bundled 公网模式使用 `exposure=public`、`bind_address=0.0.0.0`、80/443 和公网域名，
+镜像漏洞采用 report-only 并保留未完成验收状态。
 HTTP 自动跳转配置中的 HTTPS origin。此版负责使用已有证书与 reload，不自动申请证书、开放防火墙
 或建立 ACME 任务；证书签发和续期由目标机器的 Certbot/证书管理服务负责。
 
@@ -236,6 +241,9 @@ gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref main \
 ```
 
 发布 environment 为 `usdb-explorer-release`，与节点发布配置分别管理。
+完整构建包含七个镜像的安全扫描；扫描失败时即使草稿已存在也不能 Publish。
+维护者可运行 `release-security-review.yml`，选择精确的 release tag，并提供该版本 gateway digest，
+以 `report-only` 收集新证据，或以 `strict` 阻断尚未解决的 High/Critical 漏洞。
 草稿下载链接返回 HTTP 404，发布后四个附件 URL 的匿名下载和 SHA-256 检查通过才报告成功。
 Publish 复用原附件并验证 source revision、network contract、installer、image lock，不重新打包，
 不占用 Latest。发布后下载验证失败可重跑同一 Publish；原附件保持不变。

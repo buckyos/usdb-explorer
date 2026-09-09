@@ -15,7 +15,7 @@ import subprocess
 import sys
 import tempfile
 
-from public_config import GIB, compose_document, image_lock, load_config, nginx_config, read_json, wallet_network
+from public_config import GIB, compose_document, image_lock, load_config, nginx_config, read_json, security_enforcement, wallet_network
 from public_checks import check_explorer, preflight
 
 KIT = Path(__file__).resolve().parent
@@ -147,7 +147,9 @@ def prepare(config_path, root, *, replace=False, credentials_file=None, kit=KIT)
     staging = Path(tempfile.mkdtemp(prefix=".usdb-public-", dir=root.parent))
     try:
         for name, value in (("credentials.json", credentials), ("config.json", config), ("identity.json", identity),
-                            ("images.lock.json", lock), ("network.json", wallet_network(config, identity))):
+                            ("images.lock.json", lock), ("network.json", wallet_network(config, identity)),
+                            ("security-policy.json", {"enforcement": security_enforcement(config["network"]),
+                             "qualified_for_public_exposure": lock["qualified_for_public_exposure"]})):
             write_json(staging / name, value)
         # Render mount paths for the final location while reading credentials from staging.
         doc = compose_document(config, identity, lock, staging)
@@ -185,7 +187,7 @@ def prepare(config_path, root, *, replace=False, credentials_file=None, kit=KIT)
             shutil.rmtree(staging)
     print(f"Prepared {config['deployment_id']} from {version}: {root}; ingress={config['ingress']['mode']}")
     if not lock["qualified_for_public_exposure"]:
-        print("Images are qualified for private compatibility preview only; public exposure remains pending.")
+        print("WARNING: Testnet image security is report-only; image qualification remains incomplete.")
     return doc
 
 
@@ -264,6 +266,8 @@ def execute(args, root):
         report = (preflight if args.command == "preflight" else check_explorer)(config, identity)
         print(json.dumps(report, indent=2))
     elif args.command == "up":
+        if not read_json(root / "images.lock.json")["qualified_for_public_exposure"]:
+            print("WARNING: Testnet image security is report-only; unresolved findings do not block startup.")
         version = docker(["version", "--format", "{{.Server.APIVersion}}"]).stdout.strip()
         import re
         if not re.fullmatch(r"[0-9]+\.[0-9]+", version) or tuple(map(int, version.split("."))) < (1, 44):
