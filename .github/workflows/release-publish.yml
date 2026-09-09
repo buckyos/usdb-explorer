@@ -1,0 +1,82 @@
+name: USDB Explorer Publish (select release tag)
+run-name: Publish ${{ inputs.release_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Existing public release tag (vX.Y.Z)
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+# Share the build lock so a tag build cannot change assets during publication.
+concurrency:
+  group: usdb-explorer-release-refs/tags/${{ inputs.release_id }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Verify existing public release assets
+    if: github.repository == 'buckyos/usdb-explorer'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      fingerprint: ${{ steps.release.outputs.fingerprint }}
+    steps:
+      - name: Require the publisher from main
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]] || {
+            echo "::error::Select main in 'Use workflow from', then enter the public release tag."
+            exit 1
+          }
+          [[ "$RELEASE_ID" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$ ]] || {
+            echo "::error::Expected a vX.Y.Z release tag."
+            exit 1
+          }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve tag build and verify original assets
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: "1"
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: python3 explorer/publish_release.py preflight --release-id "$RELEASE_ID"
+
+  publish:
+    name: Approve and publish public pre-release
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: usdb-explorer-release
+      url: ${{ steps.release.outputs.release_url }}
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reverify, publish existing assets and check anonymous downloads
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: "1"
+          RELEASE_ID: ${{ inputs.release_id }}
+          EXPECTED_FINGERPRINT: ${{ needs.preflight.outputs.fingerprint }}
+        run: |
+          python3 explorer/publish_release.py publish --release-id "$RELEASE_ID" \
+            --expected-fingerprint "$EXPECTED_FINGERPRINT"

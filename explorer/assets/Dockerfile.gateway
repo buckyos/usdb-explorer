@@ -1,0 +1,10 @@
+ARG GO_IMAGE
+FROM ${GO_IMAGE} AS build
+WORKDIR /src
+COPY gateway/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /gateway .
+FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /gateway /gateway
+USER 65532:65532
+ENTRYPOINT ["/gateway"]

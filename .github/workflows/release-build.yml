@@ -1,0 +1,97 @@
+name: USDB Explorer Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: usdb-explorer-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    uses: ./.github/workflows/ci.yml
+  release:
+    needs: tests
+    if: github.repository == 'buckyos/usdb-explorer'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate independent version and frozen build image
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          tag = os.environ['RELEASE_TAG']
+          if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.]+)?', tag):
+              raise SystemExit('Invalid public service tag')
+          if subprocess.check_output(['git', 'cat-file', '-t', 'refs/tags/' + tag], text=True).strip() != 'tag':
+              raise SystemExit('Use an annotated public service release tag')
+          lock = json.load(open('explorer/assets/images.lock.json'))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('version=' + tag.removeprefix('v') + '\n')
+              output.write('go_image=' + lock['images']['go']['reference'] + '\n')
+          PY
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the public gateway independently of node images
+        id: gateway
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: explorer/assets/Dockerfile.gateway
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/buckyos/usdb-explorer-gateway:${{ github.ref_name }}
+          build-args: GO_IMAGE=${{ steps.version.outputs.go_image }}
+          provenance: mode=max
+          sbom: true
+      - name: Prepare the standalone kit and release-bound one-line installer
+        env:
+          PUBLIC_VERSION: ${{ steps.version.outputs.version }}
+          GATEWAY_DIGEST: ${{ steps.gateway.outputs.digest }}
+        run: |
+          python3 explorer/package_release.py --version "$PUBLIC_VERSION" \
+            --gateway-image "ghcr.io/buckyos/usdb-explorer-gateway@$GATEWAY_DIGEST" --output-dir dist
+          bash -n "dist/install-usdb-explorer-v$PUBLIC_VERSION.sh"
+      - name: Create a reviewable draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          tag = os.environ['RELEASE_TAG']
+          command = f'bash <(curl -fsSL https://github.com/buckyos/usdb-explorer/releases/download/{tag}/install-usdb-explorer-{tag}.sh)'
+          notes = Path('explorer/RELEASE_NOTES.md').read_text()
+          Path('public-release-notes.md').write_text(notes + '\n## 安装本版本\n\n'
+              '草稿阶段下载链接不可用（HTTP 404）。维护者须先运行 `USDB Explorer Publish`，'
+              '选择 `main` 并填写本版本 tag；发布为 Pre-release 后以下命令才可用。\n\n```bash\n'
+              + command + '\n```\n')
+          PY
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --draft \
+            --title "$RELEASE_TAG" --notes-file public-release-notes.md
+          {
+            echo "### Public release draft: $RELEASE_TAG"
+            echo 'Build and asset upload completed; public download URLs still return HTTP 404.'
+            echo 'Next: run USDB Explorer Publish from main with this release tag.'
+          } >>"$GITHUB_STEP_SUMMARY"

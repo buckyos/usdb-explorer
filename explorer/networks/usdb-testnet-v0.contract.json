@@ -1,0 +1,42 @@
+{
+  "schema_version": "usdb-explorer-network-contract:v1",
+  "source": {
+    "repository": "buckyos/usdb",
+    "revision": "0b946e03c71f70e6dfe0bb1bc44d9e6b3ce803ec",
+    "path": "docker/networks/testnet-v0"
+  },
+  "catalog": {
+    "file": "usdb-testnet-v0.json",
+    "sha256": "0d748a48f53ea75773b75dcbea51f7756537564940278999fdaebebbd2aaa905"
+  },
+  "rpc": {
+    "profile_id": "usdb-explorer-rpc:v1",
+    "read_methods": [
+      "eth_chainId",
+      "net_version",
+      "eth_syncing",
+      "eth_blockNumber",
+      "eth_getBlockByNumber",
+      "eth_getBlockByHash",
+      "eth_getTransactionByHash",
+      "eth_getTransactionReceipt",
+      "eth_getBalance",
+      "eth_getCode",
+      "eth_call",
+      "eth_getLogs"
+    ],
+    "trace_methods": [
+      "debug_traceTransaction",
+      "debug_traceBlockByNumber"
+    ],
+    "tracer": "callTracer",
+    "broadcast_methods": [
+      "eth_sendRawTransaction"
+    ],
+    "semantics": {
+      "extra_data": "preserve",
+      "rewards_supply": "not_qualified",
+      "fee_distribution": "not_qualified"
+    }
+  }
+}

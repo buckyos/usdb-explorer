@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Standalone USDB public service lifecycle entry point."""
+import sys
+sys.dont_write_bytecode = True
+from usdb_public import main
+
+if __name__ == "__main__":
+    sys.exit(main())

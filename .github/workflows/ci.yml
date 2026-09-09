@@ -1,0 +1,46 @@
+name: USDB Explorer CI
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  standalone:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: gateway/go.mod
+          cache: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: 3.13.7
+          check-latest: false
+      - name: Test gateway method policy, TLS and separate broadcast routing
+        working-directory: gateway
+        run: go test -race ./...
+      - name: Test independent deployment, ingress and packaging
+        run: |
+          python3 tests/test_public_services.py
+          python3 tests/test_public_installer.py
+          python3 tests/test_public_release_publish.py
+          python3 tests/test_network_contract.py
+          python3 tests/test_migration.py
+          python3 tests/test_prepare_release.py
+          python3 explorer/package_release.py --check-network
+          explorer/usdb-explorer --help
+          explorer/usdb-public --help
+      - name: Exercise optional Nginx routing, HTTPS and reload in isolated containers
+        run: python3 tests/test_public_ingress.py
