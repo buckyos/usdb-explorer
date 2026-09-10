@@ -1,0 +1,23 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-structured-release-notes",
+  "type": "added",
+  "scopes": ["release", "documentation", "testing"],
+  "summary": "从固定源码范围生成 Explorer 版本变更与升级说明",
+  "details": [
+    "沿用 USDB 的 fragment 和多 Release-Note trailer 规则，按前一已发布版本汇总功能变化、升级操作、兼容性证据和完整提交清单。",
+    "首次发版纳入全部历史；草稿不作为上一版，缺少或引用未知 fragment 的提交保持未分类并供维护者 review。",
+    "新版本增加 release-changes JSON、checksum 和 Markdown 三个附件；Publish 从固定 Git objects 重验记录及 Release 正文，发布后核验全部七个匿名下载。",
+    "已发布 fragment 不可修改或删除；打 tag 前会校验条目及提交范围，已有四附件版本仍使用原发布契约。"
+  ],
+  "operator_actions": [
+    "维护发布变更时添加或更新未发布 fragment，并在打 tag 前逐项 review 未分类提交、兼容性变化及升级操作。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": false
+  },
+  "references": []
+}

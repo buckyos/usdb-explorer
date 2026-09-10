@@ -21,10 +21,14 @@ Explorer 首次 [独立 CI](https://github.com/buckyos/usdb-explorer/actions/run
 ## 正常发版
 
 `ci.yml` 执行独立单元/部署/安装/迁移/Nginx 检查。`release-build.yml` 只响应本仓库 `v*` tag，
-检查 annotated tag，重新运行 CI，再生成 gateway 镜像和四个 release 资产：
+检查 annotated tag，重新运行 CI，再生成 gateway 镜像和安装资产：
 
 - `usdb-explorer-vX.Y.Z.tar.gz` 及 `.sha256`
 - `install-usdb-explorer-vX.Y.Z.sh` 及 `.sha256`
+- `release-changes.json`、`.json.sha256` 和 `release-changes.md`
+
+新版本合计七个附件，变更记录与正文从固定 tag 和前一已发布版本生成；规则见
+[发布变更管理](release-change-management.md)。已有四附件版本继续兼容。
 
 随后按完整镜像 lock 扫描七个固定 digest，测试网默认 report-only。High/Critical 漏洞保留为
 未解决项；扫描、镜像身份、证据生成或上传错误会让整个 build 失败。草稿可能已经存在，
@@ -35,7 +39,7 @@ Publish 在 **Use workflow from** 直接选择待发布的 `vX.Y.Z` tag，无额
 `gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref vX.Y.Z`。
 workflow 拒绝分支 dispatch，并要求选中 tag、dispatch commit 和 checkout 一致，校验原 build、
 源码、镜像 lock、附件摘要及安装脚本，经独立 environment 后重验并发布为 Pre-release。
-Build 和 Publish 共用该 tag 的并发锁，四个匿名下载逐一核对。
+Build 和 Publish 共用该 tag 的并发锁，全部附件匿名下载逐一核对。
 已发布版本重跑只校验；代码或附件内容变化须使用新 tag。
 
 ## v0.2.0 Publish 过渡

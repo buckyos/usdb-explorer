@@ -1,0 +1,22 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-tag-scoped-publication",
+  "type": "fixed",
+  "scopes": ["release", "documentation"],
+  "summary": "Explorer Publish 直接使用选中的版本 tag",
+  "details": [
+    "在 Use workflow from 选择待发布 tag，无需重复输入版本；分支 dispatch 会明确失败。",
+    "发布前要求 tag、workflow source revision 和 checkout 一致，继续复核原构建、源码和完整附件，并与 Build 共用该 tag 的并发锁。",
+    "已有 v0.2.0 保存旧 workflow，新操作方式只适用于包含修复的新 tag；旧 tag 和附件保持原样。"
+  ],
+  "operator_actions": [
+    "发布包含修复的新版本时，在 Use workflow from 选择对应 vX.Y.Z tag，并确保 usdb-explorer-release environment 允许 v* tag。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": false
+  },
+  "references": []
+}

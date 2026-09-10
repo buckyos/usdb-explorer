@@ -9,6 +9,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "explorer"))
 from network_contract import check_network
+from release_notes import audit_before_tag
 
 
 def git(repo, *args):
@@ -37,6 +38,7 @@ def prepare(repo, version, *, create=False, push=False, fetch=True):
     if git(repo, "tag", "--list", tag) or git(repo, "ls-remote", "--tags", "origin", "refs/tags/" + tag):
         raise ValueError("release tag already exists; never move or reuse it")
     check_network(repo)
+    audit_before_tag(repo, tag, revision)
     print(f"repository=buckyos/usdb-explorer\nrelease_tag={tag}\nsource_revision={revision}")
     if not create:
         print("Preflight passed; use --create to create this annotated tag, and --push to publish the tag.")

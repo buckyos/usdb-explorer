@@ -231,5 +231,77 @@ class PublicReleasePublishTests(unittest.TestCase):
         self.assertNotIn("--slurp", run.call_args.args[0])
 
 
+class StructuredReleasePublishTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.repo, self.assets = make_public_release(self.root, ROOT, PACKAGE, structured_notes=True)
+        self.api = PublicReleaseAPI(self.repo, self.assets)
+
+    def inspect(self):
+        return PUBLISH.inspect_release(self.api, self.repo, self.api.tag)
+
+    def test_seven_assets_and_original_body_survive_promotion_and_anonymous_checks(self):
+        original = deepcopy(self.api.release)
+        result = self.inspect()
+        with patch.object(self.api, "public_download", wraps=self.api.public_download) as download:
+            PUBLISH.promote(self.api, result, result["fingerprint"], downloader=download)
+            self.assertEqual(download.call_count, 7)
+        self.assertEqual(self.api.release["assets"], original["assets"])
+        self.assertEqual(self.api.release["body"], original["body"])
+        again = self.inspect()
+        PUBLISH.promote(self.api, again, again["fingerprint"], downloader=self.api.public_download)
+        self.assertEqual(len(self.api.writes), 1)
+
+    def test_removing_change_assets_cannot_downgrade_the_tag_to_legacy(self):
+        original = deepcopy(self.api.release["assets"])
+        for missing in ({"release-changes.md"}, PUBLISH.RELEASE_NOTES.ASSET_NAMES):
+            with self.subTest(missing=missing), self.assertRaisesRegex(ValueError, "complete asset set"):
+                self.api.release["assets"] = [asset for asset in original if asset["name"] not in missing]
+                self.inspect()
+        self.assertEqual(self.api.writes, [])
+
+    def test_modified_body_is_rejected_before_promotion(self):
+        self.api.release["body"] += "\nUnexpected release claim."
+        with self.assertRaisesRegex(ValueError, "body differs"):
+            self.inspect()
+        self.assertEqual(self.api.writes, [])
+
+    def test_rehashed_changes_cannot_rewrite_compatibility_coverage_or_source(self):
+        path = self.assets / "release-changes.json"
+        original = json.loads(path.read_text())
+        variants = []
+        for key, value in (("gateway_image", "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "cd" * 32),
+                           ("source_revision", "ff" * 20), ("coverage_enforced", True),
+                           ("coverage", {"classified": 1, "exempt": 0, "unclassified": 0})):
+            altered = deepcopy(original)
+            altered[key] = value
+            variants.append(altered)
+        altered = deepcopy(original)
+        altered["changes"][0]["summary"] = "Unreviewed feature claim"
+        variants.append(altered)
+        for changes in variants:
+            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, "frozen source evidence"):
+                path.write_bytes(PUBLISH.RELEASE_NOTES.canonical_json(changes))
+                path.with_suffix(".json.sha256").write_text(PUBLISH.sha256(path) + "  release-changes.json\n")
+                self.api.refresh_assets()
+                self.inspect()
+        self.assertEqual(self.api.writes, [])
+
+    def test_rehashed_markdown_and_wrong_json_checksum_are_rejected(self):
+        markdown = self.assets / "release-changes.md"
+        original = markdown.read_bytes()
+        markdown.write_text("Unreviewed upgrade instructions\n")
+        self.api.refresh_assets()
+        with self.assertRaisesRegex(ValueError, "Markdown mismatch"):
+            self.inspect()
+        markdown.write_bytes(original)
+        (self.assets / "release-changes.json.sha256").write_text("0" * 64 + "  release-changes.json\n")
+        self.api.refresh_assets()
+        with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+            self.inspect()
+
+
 if __name__ == "__main__":
     unittest.main()

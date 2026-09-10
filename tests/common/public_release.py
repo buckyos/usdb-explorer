@@ -10,7 +10,7 @@ from unittest.mock import patch
 from install_release import extract_release
 
 
-def make_public_release(root, source, packager):
+def make_public_release(root, source, packager, *, structured_notes=False):
     """Produce real installer assets from a clean temporary annotated tag."""
     repo = root / "repo"
     (repo / "explorer").mkdir(parents=True)
@@ -18,6 +18,8 @@ def make_public_release(root, source, packager):
         target = repo / "explorer" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source / "explorer" / name, target)
+    if structured_notes:
+        shutil.copytree(source / ".release-notes", repo / ".release-notes")
     commands = (["init", "--initial-branch=main"], ["config", "user.name", "Release fixture"],
                 ["config", "user.email", "fixture@example.invalid"], ["add", "."],
                 ["-c", "commit.gpgsign=false", "commit", "-m", "Create public release fixture"],
@@ -28,6 +30,10 @@ def make_public_release(root, source, packager):
     assets = root / "assets"
     with patch.object(packager, "check_network"):
         packager.package(repo, assets, "0.1.0", "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32)
+    if structured_notes:
+        import release_notes
+        changes = release_notes.build_changes(repo, "v0.1.0", "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32)
+        release_notes.write_release_files(changes, assets, root / "notes.md")
     return repo, assets
 
 
@@ -42,9 +48,13 @@ class PublicReleaseAPI:
         self.remote = {"object": {"type": "tag", "sha": tag_object}}
         self.runs = [{"id": 101, "run_attempt": 1, "path": ".github/workflows/release-build.yml",
                       "event": "push", "head_sha": self.revision, "head_branch": self.tag,
+                      "created_at": "2026-09-09T00:00:00Z",
                       "status": "completed", "conclusion": "success"}]
         self.release = {"id": 202, "tag_name": self.tag, "draft": True, "prerelease": False,
                         "name": self.tag, "body": "Existing preview notes and install command."}
+        if (assets / "release-changes.json").exists():
+            import release_notes
+            self.release["body"] = release_notes.render_release_notes(release_notes.load_json(assets / "release-changes.json"))
         self.writes = []
         self.refresh_assets()
 
@@ -66,6 +76,8 @@ class PublicReleaseAPI:
         if endpoint.startswith("actions/workflows/release-build.yml/runs?"):
             assert paginate
             return [{"workflow_runs": []}, {"workflow_runs": deepcopy(self.runs)}]
+        if endpoint == "actions/runs/101":
+            return deepcopy(self.runs[0])
         if endpoint == "releases?per_page=100":
             assert paginate
             return [[], [deepcopy(self.release)]]

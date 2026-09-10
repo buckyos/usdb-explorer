@@ -90,29 +90,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
+          GATEWAY_DIGEST: ${{ steps.gateway.outputs.digest }}
         run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          tag = os.environ['RELEASE_TAG']
-          command = f'bash <(curl -fsSL https://github.com/buckyos/usdb-explorer/releases/download/{tag}/install-usdb-explorer-{tag}.sh)'
-          notes = Path('explorer/RELEASE_NOTES.md').read_text()
-          Path('public-release-notes.md').write_text(notes + '\n## 安装本版本\n\n'
-              '草稿阶段下载链接不可用（HTTP 404）。维护者须先运行 `USDB Explorer Publish`，'
-              f'在 `Use workflow from` 选择本版本 tag `{tag}`，无需额外填写版本；'
-              '发布为 Pre-release 后以下命令才可用。\n\n```bash\n'
-              + command + '\n```\n')
-          with Path('public-release-notes.md').open('a') as notes:
-              notes.write('\n## 镜像安全检查\n\n测试网漏洞结果为 report-only；镜像未因此获得安全验收。'
-                  '构建流程的各镜像扫描 artifact 保存完整 JSON、SARIF、metadata 和 SHA256SUMS。'
-                  '扫描或证据生成失败仍会阻止 Publish。\n')
-          PY
+          python3 scripts/release_notes.py generate --release-id "$RELEASE_TAG" \
+            --gateway-image "ghcr.io/buckyos/usdb-explorer-gateway@$GATEWAY_DIGEST" \
+            --output-dir dist --notes public-release-notes.md
+          python3 scripts/release_notes.py validate-release --release-id "$RELEASE_TAG" \
+            --gateway-image "ghcr.io/buckyos/usdb-explorer-gateway@$GATEWAY_DIGEST" \
+            --output-dir dist --notes public-release-notes.md
           gh release create "$RELEASE_TAG" dist/* --verify-tag --draft \
             --title "$RELEASE_TAG" --notes-file public-release-notes.md
           {
             echo "### Public release draft: $RELEASE_TAG"
             echo 'Build and asset upload completed; public download URLs still return HTTP 404.'
             echo "Next: run USDB Explorer Publish with tag $RELEASE_TAG selected in 'Use workflow from'."
+            cat dist/release-changes.md
           } >>"$GITHUB_STEP_SUMMARY"
 
   security:

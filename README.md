@@ -62,6 +62,10 @@ gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref v0.2.1
 [发布与迁移](docs/release-and-migration.md)。普通开发 checkout 即使尚无 commit 也可生成明确标记
 `source_dirty` 的本地测试包；发布只接受通过 tag 构建的干净源码。
 
+版本变更使用 [结构化 fragment](.release-notes/README.md) 维护，规则沿用 USDB/go-ethereum。
+打 tag 前会报告未分类提交；Build 生成变更 JSON、checksum、Markdown 和 Release 正文，
+Publish 从固定源码重验。工作流与兼容性比较见 [变更记录管理](docs/release-change-management.md)。
+
 测试网采用镜像安全 `report-only` 模式，并允许显式配置 public + HTTPS。漏洞及未完成验收状态
 继续保留；扫描失败、digest/source 不符、证据损坏仍阻断发布。维护者可手工运行 strict 审查。
 完整策略见 [镜像安全与测试网发布](docs/image-security.md)。真实 archive、重组恢复、合约验证和

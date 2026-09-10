@@ -17,6 +17,9 @@ from install_release import extract_release, sha256, verify_release
 from package_release import FILES
 from release_installer import render_installer
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import release_notes as RELEASE_NOTES
+
 REPOSITORY = "buckyos/usdb-explorer"
 BUILD_WORKFLOW = ".github/workflows/release-build.yml"
 MAX_ASSET_BYTES = 16 * 1024**2
@@ -55,11 +58,13 @@ def git(repo, *arguments):
     return subprocess.check_output(["git", "-C", str(repo), *arguments], timeout=30)
 
 
-def release_assets(release, release_id):
-    """Require the complete, bounded four-file publication produced by the builder."""
+def release_assets(release, release_id, *, structured_notes=False):
+    """Require the complete, bounded publication selected by the tagged notes policy."""
     archive_id = "usdb-explorer-" + release_id
     archive, installer = archive_id + ".tar.gz", "install-" + archive_id + ".sh"
     names = {archive, archive + ".sha256", installer, installer + ".sha256"}
+    if structured_notes:
+        names |= RELEASE_NOTES.ASSET_NAMES
     assets = release.get("assets", [])
     if (release.get("tag_name") != release_id or type(release.get("id")) is not int
             or release["id"] <= 0 or type(release.get("draft")) is not bool
@@ -155,7 +160,8 @@ def inspect_release(api, repo, release_id, *, expected_source_revision=None):
     if len(matches) != 1:
         raise ValueError("expected one existing public release; run the tag build and wait for its draft")
     release = matches[0]
-    assets = release_assets(release, release_id)
+    structured_notes = RELEASE_NOTES.requires_notes(repo, revision)
+    assets = release_assets(release, release_id, structured_notes=structured_notes)
     with tempfile.TemporaryDirectory(prefix="usdb-public-assets-") as temporary:
         directory = Path(temporary)
         for asset in assets:
@@ -165,6 +171,10 @@ def inspect_release(api, repo, release_id, *, expected_source_revision=None):
                 raise ValueError(f"downloaded release asset differs from GitHub metadata: {asset['name']}")
         gateway = verify_payload(directory, "usdb-explorer-" + release_id, revision,
                                  lambda name: git(repo, "show", f"{revision}:explorer/{name}"))
+        if structured_notes:
+            previous = RELEASE_NOTES.previous_published(api, repo, release_id, published_before=run["created_at"])
+            RELEASE_NOTES.validate_release_files(repo, release_id, gateway, directory, release.get("body"),
+                                                 expected_previous=previous)
     snapshot = {"release_id": release_id, "release_database_id": release["id"],
                 "tag_object": tag_object, "source_revision": revision,
                 "build_run_id": run["id"], "build_run_attempt": run["run_attempt"],
@@ -194,7 +204,8 @@ def promote(api, result, expected_fingerprint, *, downloader=download_public):
     if result["draft"]:
         api.json(endpoint, fields={"draft": False, "prerelease": True, "make_latest": "false"})
     published = api.json(endpoint)
-    assets = release_assets(published, snapshot["release_id"])
+    assets = release_assets(published, snapshot["release_id"], structured_notes=
+                            "release-changes.json" in {asset["name"] for asset in snapshot["assets"]})
     if (published["draft"] or published.get("prerelease") is not True
             or published["id"] != snapshot["release_database_id"]
             or published.get("name") != snapshot["title"] or published.get("body") != snapshot["body"]
@@ -241,7 +252,7 @@ def main():
                                   f"[Successful build](https://github.com/{REPOSITORY}/actions/runs/{snapshot['build_run_id']})\n\n"
                                   f"Verified asset fingerprint: `{result['fingerprint']}`\n\n")
                 if args.command == "publish":
-                    destination.write(f"[Published pre-release]({result['release_url']}); all four anonymous downloads verified.\n")
+                    destination.write(f"[Published pre-release]({result['release_url']}); all {len(snapshot['assets'])} anonymous downloads verified.\n")
                 else:
                     destination.write("Existing assets verified; public download URLs become available after publication.\n")
         return 0

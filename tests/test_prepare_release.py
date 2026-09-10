@@ -33,8 +33,16 @@ class PrepareReleaseTests(unittest.TestCase):
         return ""
 
     def run_prepare(self, **options):
-        with patch.object(PREPARE, "git", side_effect=self.git):
+        with patch.object(PREPARE, "git", side_effect=self.git), patch.object(PREPARE, "audit_before_tag") as audit:
             PREPARE.prepare(ROOT, "0.2.0", **options)
+            audit.assert_called_once_with(ROOT, "v0.2.0", "a" * 40)
+
+    def test_invalid_release_notes_block_tag_creation(self):
+        with patch.object(PREPARE, "git", side_effect=self.git), patch.object(
+                PREPARE, "audit_before_tag", side_effect=ValueError("published fragments are append-only")):
+            with self.assertRaisesRegex(ValueError, "append-only"):
+                PREPARE.prepare(ROOT, "0.2.0", create=True)
+        self.assertFalse(any(args[:2] == ("tag", "-a") for args in self.calls))
 
     def test_default_preflight_creates_no_tag_or_commit(self):
         self.run_prepare()

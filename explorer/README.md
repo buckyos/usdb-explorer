@@ -245,7 +245,9 @@ gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref v0.2.1
 完整构建包含七个镜像的安全扫描；扫描失败时即使草稿已存在也不能 Publish。
 维护者可运行 `release-security-review.yml`，选择精确的 release tag，并提供该版本 gateway digest，
 以 `report-only` 收集新证据，或以 `strict` 阻断尚未解决的 High/Critical 漏洞。
-草稿下载链接返回 HTTP 404，发布后四个附件 URL 的匿名下载和 SHA-256 检查通过才报告成功。
+新版本随安装附件发布变更 JSON、checksum 和 Markdown；正文列出本版变化、升级操作和提交范围。
+草稿下载链接返回 HTTP 404，发布后全部七个附件 URL 的匿名下载和 SHA-256 检查通过才报告成功。
+旧四附件版本保持兼容。变更记录规则见 [发布变更管理](../docs/release-change-management.md)。
 Publish 复用原附件并验证 source revision、network contract、installer、image lock，不重新打包，
 不占用 Latest。发布后下载验证失败可重跑同一 Publish；原附件保持不变。
 
