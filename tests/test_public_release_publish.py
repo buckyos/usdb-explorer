@@ -54,10 +54,45 @@ class PublicReleasePublishTests(unittest.TestCase):
         self.assertEqual(len(self.api.writes), 1)
 
     def test_node_tags_and_branch_names_are_rejected_before_api_access(self):
-        for tag in ("main", "usdb-testnet-v0-r20", "usdb-explorer-v1.0", "usdb-explorer-v1.0.0\n"):
+        for tag in ("main", "0.2.0", "usdb-testnet-v0-r20", "usdb-explorer-v1.0", "usdb-explorer-v1.0.0\n"):
             with self.subTest(tag=tag), self.assertRaisesRegex(ValueError, "release tag"):
                 PUBLISH.inspect_release(self.api, self.repo, tag)
         self.assertEqual(self.api.writes, [])
+
+    def test_tag_dispatch_verifies_assets_from_the_workflow_revision(self):
+        result = PUBLISH.inspect_release(self.api, self.repo, self.api.tag,
+                                         expected_source_revision=self.api.revision)
+        self.assertEqual(result["snapshot"]["source_revision"], self.api.revision)
+        self.assertEqual(len(result["snapshot"]["assets"]), 4)
+        self.assertEqual(self.api.writes, [])
+
+    def test_wrong_or_empty_workflow_revision_fails_before_api_access(self):
+        with patch.object(self.api, "json") as api_read:
+            for revision in ("ff" * 20, ""):
+                with self.subTest(revision=revision), self.assertRaisesRegex(ValueError, "workflow source revision"):
+                    PUBLISH.inspect_release(self.api, self.repo, self.api.tag,
+                                            expected_source_revision=revision)
+            api_read.assert_not_called()
+
+    def test_newer_checkout_is_rejected_for_dispatch_but_can_inspect_old_releases_locally(self):
+        subprocess.run(["git", "-C", str(self.repo), "commit", "--allow-empty", "-qm", "Advance main"], check=True)
+        with patch.object(self.api, "json") as api_read:
+            with self.assertRaisesRegex(ValueError, "publisher checkout"):
+                PUBLISH.inspect_release(self.api, self.repo, self.api.tag,
+                                        expected_source_revision=self.api.revision)
+            api_read.assert_not_called()
+        self.assertEqual(self.inspect()["snapshot"]["source_revision"], self.api.revision)
+
+    def test_tag_moved_after_dispatch_is_rejected_even_if_local_and_remote_tags_agree(self):
+        subprocess.run(["git", "-C", str(self.repo), "commit", "--allow-empty", "-qm", "Advance main"], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "tag", "-fa", self.api.tag, "-m", "Moved tag"],
+                       check=True, stdout=subprocess.DEVNULL)
+        self.api.remote["object"]["sha"] = PUBLISH.git(self.repo, "rev-parse", self.api.tag).decode().strip()
+        with patch.object(self.api, "json") as api_read:
+            with self.assertRaisesRegex(ValueError, "workflow source revision"):
+                PUBLISH.inspect_release(self.api, self.repo, self.api.tag,
+                                        expected_source_revision=self.api.revision)
+            api_read.assert_not_called()
 
     def test_lightweight_or_moved_remote_tag_is_rejected(self):
         self.api.remote["object"]["sha"] = "ff" * 20

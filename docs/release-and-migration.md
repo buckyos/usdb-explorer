@@ -2,16 +2,17 @@
 
 本地拆仓与远端接续已经完成：Explorer `89e1cd2`、USDB `b8833d5`、go-ethereum `9066e2b47`。
 Explorer 首次 [独立 CI](https://github.com/buckyos/usdb-explorer/actions/runs/34371479993) 已通过。
-以下首发步骤仍按顺序核对；CI 通过不代表已有可下载的 release。
+首个独立版本 `v0.2.0` 的 [tag build](https://github.com/buckyos/usdb-explorer/actions/runs/34382926874)
+已成功生成草稿；仍须完成 Publish，草稿附件不可匿名下载。
 
 ## 首次仓库切换
 
 1. `buckyos/usdb-explorer` 远端仓库使用 `main`。本地迁移提交接在远端初始化提交之后，再推送到 `main`。
-2. 独立的 `usdb-explorer-release` environment 已创建，只允许 `main` 分支使用；当前未配置
+2. 独立的 `usdb-explorer-release` environment 允许 `v*` tag，保留 `main` 分支规则用于旧流程过渡；当前未配置
    required reviewer，Publish 由维护者手工 dispatch。Actions 已启用，workflow 分别声明
    contents/packages 权限。构建器推送 `ghcr.io/buckyos/usdb-explorer-gateway`，公开安装还要求
    该 package 可供目标操作者拉取；新镜像 package 的可见性需在首次构建后核对。
-3. 等待新仓库 CI 通过，再创建首个独立 tag（建议 `v0.2.0`），等待 build 草稿完成并运行 Publish。
+3. 首个独立 tag `v0.2.0` 已完成 build；按下方过渡说明完成发布。后续 tag 须包含新的 Publish workflow。
 4. 原仓库迁移删除与旧 public tag 入口退役已提交。首次切换不更新或移动任何旧 release tag。
 
 在原仓库移除当前 public 源码前，完整副本已放入本地新仓库。迁移来源 commit/路径有记录；
@@ -30,9 +31,28 @@ Explorer 首次 [独立 CI](https://github.com/buckyos/usdb-explorer/actions/run
 Publish 仍要求原 build 完整成功。手工批次审查与证据格式见 [安全策略](image-security.md)。
 
 安装脚本绑定本仓库 `/releases/download/vX.Y.Z/` URL 与 archive digest。
-Publish 从 `main` 固定本次 publisher commit，输入目标 tag，校验原 build、源码、镜像 lock、
-附件摘要及安装脚本，经独立 environment 后重验并发布为 Pre-release。四个匿名下载逐一核对。
+Publish 在 **Use workflow from** 直接选择待发布的 `vX.Y.Z` tag，无额外版本输入；CLI 使用
+`gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref vX.Y.Z`。
+workflow 拒绝分支 dispatch，并要求选中 tag、dispatch commit 和 checkout 一致，校验原 build、
+源码、镜像 lock、附件摘要及安装脚本，经独立 environment 后重验并发布为 Pre-release。
+Build 和 Publish 共用该 tag 的并发锁，四个匿名下载逐一核对。
 已发布版本重跑只校验；代码或附件内容变化须使用新 tag。
+
+## v0.2.0 Publish 过渡
+
+`v0.2.0` 固定在 `82aeaaf`，其中旧 Publish workflow 要求从 `main` 执行并输入 `release_id`。
+选择 tag 后失败是旧 workflow 的 ref 检查导致；`v0.2.0` 是正确 tag 名，`0.2.0` 不是。
+修改 `main` 不会更新已有 tag 中的 workflow，重跑原失败任务也仍使用旧代码。
+
+在修复推送到 `main` **之前**，已有草稿仍可按旧入口发布：
+
+```bash
+gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref main \
+  -f release_id=v0.2.0
+```
+
+修复推送后，新发版使用包含修复的独立 tag（例如 `v0.2.1`），直接选择 tag 发布。
+保留 `v0.2.0` 的 tag、草稿和原始附件，不移动 tag 或覆盖附件以修改历史 workflow。
 
 ## 旧版兼容
 

@@ -99,7 +99,8 @@ jobs:
           notes = Path('explorer/RELEASE_NOTES.md').read_text()
           Path('public-release-notes.md').write_text(notes + '\n## 安装本版本\n\n'
               '草稿阶段下载链接不可用（HTTP 404）。维护者须先运行 `USDB Explorer Publish`，'
-              '选择 `main` 并填写本版本 tag；发布为 Pre-release 后以下命令才可用。\n\n```bash\n'
+              f'在 `Use workflow from` 选择本版本 tag `{tag}`，无需额外填写版本；'
+              '发布为 Pre-release 后以下命令才可用。\n\n```bash\n'
               + command + '\n```\n')
           with Path('public-release-notes.md').open('a') as notes:
               notes.write('\n## 镜像安全检查\n\n测试网漏洞结果为 report-only；镜像未因此获得安全验收。'
@@ -111,7 +112,7 @@ jobs:
           {
             echo "### Public release draft: $RELEASE_TAG"
             echo 'Build and asset upload completed; public download URLs still return HTTP 404.'
-            echo 'Next: run USDB Explorer Publish from main with this release tag.'
+            echo "Next: run USDB Explorer Publish with tag $RELEASE_TAG selected in 'Use workflow from'."
           } >>"$GITHUB_STEP_SUMMARY"
 
   security:

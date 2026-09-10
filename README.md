@@ -51,13 +51,14 @@ go test -race ./...
 在干净且已推送的 `main` 上：
 
 ```bash
-python3 scripts/prepare_release.py --version 0.2.0
-python3 scripts/prepare_release.py --version 0.2.0 --create --push
-gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref main \
-  -f release_id=v0.2.0
+python3 scripts/prepare_release.py --version 0.2.1
+python3 scripts/prepare_release.py --version 0.2.1 --create --push
+# Wait for the tag build to succeed before publishing.
+gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref v0.2.1
 ```
 
-先等待 tag build 成功，再手动 Publish。完整配置与切换顺序见
+先等待 tag build 成功，再手动 Publish；网页中在 **Use workflow from** 选择对应 tag，无需填写版本。
+此流程适用于包含 tag 选择修复的新版本；已有 `v0.2.0` 的过渡方式及完整配置见
 [发布与迁移](docs/release-and-migration.md)。普通开发 checkout 即使尚无 commit 也可生成明确标记
 `source_dirty` 的本地测试包；发布只接受通过 tag 构建的干净源码。
 

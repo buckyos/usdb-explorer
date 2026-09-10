@@ -126,7 +126,7 @@ def verify_payload(directory, release_id, revision, read_source):
     return gateway["reference"]
 
 
-def inspect_release(api, repo, release_id):
+def inspect_release(api, repo, release_id, *, expected_source_revision=None):
     """Resolve and verify the original draft, or an already published immutable release."""
     if re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.]+)?", release_id) is None:
         raise ValueError("expected an independent vX.Y.Z release tag")
@@ -135,6 +135,13 @@ def inspect_release(api, repo, release_id):
         raise ValueError("public release tag must be annotated")
     tag_object = git(repo, "rev-parse", ref).decode().strip()
     revision = git(repo, "rev-parse", ref + "^{commit}").decode().strip()
+    # Tag-dispatched workflows must execute the same revision they are publishing.
+    # Keep local inspection of older releases possible from a newer checkout.
+    if expected_source_revision is not None:
+        if revision != expected_source_revision:
+            raise ValueError("release tag target differs from the workflow source revision")
+        if git(repo, "rev-parse", "HEAD").decode().strip() != revision:
+            raise ValueError("publisher checkout differs from the release tag target")
     git(repo, "merge-base", "--is-ancestor", revision, "refs/remotes/origin/main")
     remote = api.json("git/ref/tags/" + release_id)["object"]
     if remote.get("type") != "tag" or remote.get("sha") != tag_object:
@@ -212,11 +219,14 @@ def main():
     parser.add_argument("command", choices=("preflight", "publish"))
     parser.add_argument("--release-id", required=True)
     parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--expected-source-revision",
+                        help="require the release tag and publisher checkout to match this workflow commit")
     parser.add_argument("--expected-fingerprint")
     args = parser.parse_args()
     try:
         api = GitHub()
-        result = inspect_release(api, args.repository_root, args.release_id)
+        result = inspect_release(api, args.repository_root, args.release_id,
+                                 expected_source_revision=args.expected_source_revision)
         if args.command == "publish":
             promote(api, result, args.expected_fingerprint)
         print(json.dumps(result, indent=2))

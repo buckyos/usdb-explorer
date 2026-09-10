@@ -1,13 +1,8 @@
 name: USDB Explorer Publish (select release tag)
-run-name: Publish ${{ inputs.release_id }}
+run-name: Publish ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
-    inputs:
-      release_id:
-        description: Existing public release tag (vX.Y.Z)
-        required: true
-        type: string
 
 permissions:
   actions: read
@@ -15,7 +10,7 @@ permissions:
 
 # Share the build lock so a tag build cannot change assets during publication.
 concurrency:
-  group: usdb-explorer-release-refs/tags/${{ inputs.release_id }}
+  group: usdb-explorer-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -27,13 +22,13 @@ jobs:
     outputs:
       fingerprint: ${{ steps.release.outputs.fingerprint }}
     steps:
-      - name: Require the publisher from main
+      - name: Validate tag-scoped dispatch
         env:
-          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_ID: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF" == refs/heads/main ]] || {
-            echo "::error::Select main in 'Use workflow from', then enter the public release tag."
+          [[ "$GITHUB_REF" == "refs/tags/$RELEASE_ID" ]] || {
+            echo "::error::Select a vX.Y.Z tag in 'Use workflow from'; current ref is $GITHUB_REF."
             exit 1
           }
           [[ "$RELEASE_ID" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$ ]] || {
@@ -50,8 +45,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PYTHONDONTWRITEBYTECODE: "1"
-          RELEASE_ID: ${{ inputs.release_id }}
-        run: python3 explorer/publish_release.py preflight --release-id "$RELEASE_ID"
+          RELEASE_ID: ${{ github.ref_name }}
+        run: |
+          python3 explorer/publish_release.py preflight --release-id "$RELEASE_ID" \
+            --expected-source-revision "$GITHUB_SHA"
 
   publish:
     name: Approve and publish public pre-release
@@ -75,8 +72,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PYTHONDONTWRITEBYTECODE: "1"
-          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_ID: ${{ github.ref_name }}
           EXPECTED_FINGERPRINT: ${{ needs.preflight.outputs.fingerprint }}
         run: |
           python3 explorer/publish_release.py publish --release-id "$RELEASE_ID" \
+            --expected-source-revision "$GITHUB_SHA" \
             --expected-fingerprint "$EXPECTED_FINGERPRINT"

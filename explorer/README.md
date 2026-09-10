@@ -227,20 +227,21 @@ usdb-explorer check
 在已提交并推送、与 origin/main 一致的干净 checkout 中执行：
 
 ```bash
-python3 scripts/prepare_release.py --version 0.2.0
-python3 scripts/prepare_release.py --version 0.2.0 --create --push
+python3 scripts/prepare_release.py --version 0.2.1
+python3 scripts/prepare_release.py --version 0.2.1 --create --push
 ```
 
 tag 工具只访问本仓库。默认预检；`--create` 创建 annotated tag，`--push` 才会推送。
 失败时保留已有 tag，按报错续推；不要移动或复用版本。
-构建成功后，从 Actions 的 **USDB Explorer Publish** 选择 **main**，填写 `release_id=v0.2.0`：
+构建成功后，从 Actions 的 **USDB Explorer Publish** 的 **Use workflow from** 选择对应 tag
+（如 `v0.2.1`），无需再填写版本：
 
 ```bash
-gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref main \
-  -f release_id=v0.2.0
+gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref v0.2.1
 ```
 
-发布 environment 为 `usdb-explorer-release`，与节点发布配置分别管理。
+发布 environment 为 `usdb-explorer-release`，须允许 `v*` tag，与节点发布配置分别管理。
+已有 `v0.2.0` 不包含 tag 选择修复，过渡方式见 [发布与迁移](../docs/release-and-migration.md)。
 完整构建包含七个镜像的安全扫描；扫描失败时即使草稿已存在也不能 Publish。
 维护者可运行 `release-security-review.yml`，选择精确的 release tag，并提供该版本 gateway digest，
 以 `report-only` 收集新证据，或以 `strict` 阻断尚未解决的 High/Critical 漏洞。
