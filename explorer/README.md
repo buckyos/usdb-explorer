@@ -2,6 +2,7 @@
 
 此目录提供独立的 `usdb-explorer` 工具和发布通道，并保留 `usdb-public` 兼容命令。
 新安装默认连接同机 USDB 的 `http://127.0.0.1:8545`，与 `usdb-node` 默认 Docker 部署配合使用。
+上游仍须显式启用 archive 和私有 tracing；普通节点的默认配置不满足完整浏览器的历史查询要求。
 也支持在独立机器上通过显式私网 RPC 地址连接远端节点，无需安装节点工具或 clone 源码。
 本工具不启动、停止、重配上游节点，不读取 `node.env`，不加入节点的 Docker network。
 
@@ -59,7 +60,14 @@ GitHub Release 同时保留安装包、脚本及各自 `.sha256`，便于离线�
 ### 同机测试网：默认入口与端口映射
 
 首次安装的默认配置是 `rpc.mode=local-node`、`ingress.mode=bundled`，浏览器入口为
-`http://127.0.0.1:28080`。同机默认 USDB RPC 不需要额外填写；执行下一节的 prepare/preflight/up 即可。
+`http://127.0.0.1:28080`。同机默认 USDB RPC 不需要额外填写；先确保上游已具备历史状态和 tracing。
+包含可选查询模式的新 USDB 配套 release 支持在节点停止状态执行
+`usdb-node set-query-mode --state-mode archive --tracing on`，专用服务器保持 `full` 角色即可。
+此节点功能需要对应 node kit 和 chain 镜像，升级 Explorer 本身不会启用它。
+已有 full 节点改为 archive 不会补回已裁剪的历史；从 genesis 完整执行或恢复完整 archive 备份后，
+再进行 prepare/preflight/up。节点侧还应为同机 Explorer 显式预留资源。操作与边界见
+[USDB 专用查询节点文档](https://github.com/buckyos/usdb/blob/master/doc/publish/usdb-node-query-mode.md)。
+
 公网或局域网通过 IP＋端口访问时，先设置访问者实际使用的 URL。例如把外部 `38080`
 映射到测试机 `28080`（`192.0.2.10` 请替换成测试机实际对外 IP）：
 
@@ -96,7 +104,8 @@ usdb-explorer up
 `local-node` 使用两个固定 digest 的小型 Nginx 转发容器：`rpc-host` 访问宿主机 loopback，
 只监听私有共享 volume 内的 Unix socket；`rpc-relay` 在 Explorer 的内部 RPC 网络接入该 socket。
 只有 backend/gateway 加入该内部网络，frontend/proxy 不加入；没有新增宿主机 RPC 监听端口，
-无需修改或重启 USDB。此模式要求本机原生、非 rootless 的 Linux Docker Engine；远端 Docker、
+转发通道本身无需修改或重启 USDB；上游能力配置仍需由节点运维完成。
+此模式要求本机原生、非 rootless 的 Linux Docker Engine；远端 Docker、
 Docker Desktop 或独立 RPC 服务器使用 `rpc.mode=external`。
 
 更多设置可编辑 `~/.config/usdb-public/config.json`：

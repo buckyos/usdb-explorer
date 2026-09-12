@@ -1,0 +1,19 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-local-node-history-prerequisites",
+  "type": "fixed",
+  "scopes": ["documentation"],
+  "summary": "Clarify archive and private tracing prerequisites for colocated Explorer deployments",
+  "details": [
+    "Explain that the default local RPC address provides connectivity but ordinary node defaults do not satisfy the existing historical state and tracing checks.",
+    "Describe the optional query policy in compatible USDB releases, separate node image upgrades from Explorer upgrades, and retain the warning that archive activation does not restore pruned history."
+  ],
+  "operator_actions": [],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": false
+  },
+  "references": []
+}
