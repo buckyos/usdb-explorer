@@ -28,6 +28,10 @@ class PublicServicesTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.config = CONFIG.read_json(KIT / "config.example.json")
+        # Exercise the legacy contract independently of defaults for new installations.
+        self.config["rpc"] = {"read_url": "http://archive.internal:8545"}
+        self.config["ingress"] = {"mode": "external", "explorer_url": "http://127.0.0.1:28082"}
+        self.config["resources"]["other_services_memory_gib"] = 0
         self.identity = CONFIG.read_json(KIT / "networks/usdb-testnet-v0.json")
         self.rpc = PublicRpcFixture(self.identity)
         self.config["rpc"]["transaction"] = self.rpc.transaction
@@ -107,7 +111,7 @@ class PublicServicesTests(unittest.TestCase):
 
     def test_config_rejects_typos_injection_unsafe_exposure_and_port_collision(self):
         base = deepcopy(self.config)
-        changes = [("mode", "unknown"), ("bind_address", "0.0.0.0"), ("exposure", "public"),
+        changes = [("mode", "unknown"), ("bind_address", "0.0.0.0"), ("exposure", "unknown"),
                    ("gateway_port", 28080), ("explorer_url", "https://explorer.example.com/subpath"),
                    ("explorer_url", "https://example.com;return"), ("typo", "ignored")]
         for key, value in changes:

@@ -11,10 +11,71 @@ import unittest
 import urllib.error
 import urllib.request
 import uuid
+from contextlib import ExitStack
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "explorer"))
-from public_config import image_lock, nginx_config
+from public_config import image_lock, nginx_config, read_json
+import public_checks as CHECK
+import usdb_public as PUBLIC
+from common.public_services import PublicRpcFixture, rpc_server
+
+
+class LocalRpcContainers(unittest.TestCase):
+    def test_host_loopback_vhosts_and_separate_routes_from_an_isolated_container(self):
+        with tempfile.TemporaryDirectory(prefix="explorer-local-rpc-") as temporary, ExitStack() as stack:
+            root = Path(temporary)
+            config = read_json(ROOT / "explorer/config.example.json")
+            config["deployment_id"] = "explorer-local-test-" + uuid.uuid4().hex[:10]
+            identity = read_json(ROOT / "explorer/networks/usdb-testnet-v0.json")
+            fixtures, requests = {}, {}
+            for route in ("read", "trace", "broadcast"):
+                fixtures[route] = PublicRpcFixture(identity)
+                requests[route] = []
+                url = stack.enter_context(rpc_server(fixtures[route], request_observer=lambda path, headers, r=route:
+                                                      requests[r].append((path, headers["Host"]))))
+                config["rpc"][route + "_url"] = url + "/node-rpc"
+            config["rpc"].update(transaction=fixtures["read"].transaction, historical_block=10)
+            path = root / "operator.json"
+            path.write_text(json.dumps(config))
+            state = root / "deployment"
+            PUBLIC.prepare(path, state)
+            config = read_json(state / "config.json")
+            report = CHECK.preflight(config, identity)
+            image = image_lock(ROOT / "explorer")["images"]["nginx"]["reference"]
+            if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode:
+                IngressContainers.docker("pull", image)
+            # Only this random test project is removed; no real node or deployment is operated.
+            stack.callback(PUBLIC.compose, state, ["down", "--volumes"], capture=True, timeout=60)
+            PUBLIC.compose(state, ["up", "-d", "--wait", "--wait-timeout", "40", "rpc-host", "rpc-relay"], capture=True, timeout=60)
+            PUBLIC.check_local_relay(state, config, identity, report)
+            for route in fixtures:
+                fixtures[route].calls.clear()
+                requests[route].clear()
+            network = config["deployment_id"] + "_rpc"
+
+            def probe(route, method="eth_chainId"):
+                return IngressContainers.docker("run", "--rm", "--network", network, "--memory", "64m", "--cpus", "0.25",
+                    "--entrypoint", "wget", image, "-q", "-O", "-", "-T", "3", "--header=Content-Type:application/json",
+                    "--post-data=" + json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": []}),
+                    "http://rpc-relay:8080/" + route)
+
+            for route, fixture in fixtures.items():
+                self.assertEqual(json.loads(probe(route))["result"], hex(identity["chain_id"]))
+                self.assertEqual(fixture.calls, [("eth_chainId", [])])
+                self.assertEqual(requests[route], [("/node-rpc", config["rpc"][route + "_url"].split("/")[2])])
+            with self.assertRaises(subprocess.CalledProcessError):
+                probe("unconfigured-route")
+            # Restart the socket owner to exercise stale socket cleanup and relay recovery.
+            PUBLIC.compose(state, ["restart", "rpc-host"], capture=True, timeout=30)
+            for attempt in range(20):
+                try:
+                    self.assertEqual(json.loads(probe("read"))["result"], hex(identity["chain_id"]))
+                    break
+                except subprocess.CalledProcessError:
+                    if attempt == 19:
+                        raise
+                    time.sleep(.1)
 
 
 class IngressContainers(unittest.TestCase):
@@ -69,7 +130,8 @@ class IngressContainers(unittest.TestCase):
                 time.sleep(.1)
 
     def test_bundled_http_resolves_private_services_and_preserves_routes(self):
-        config = {"ingress": {"mode": "bundled", "bind_address": "127.0.0.1", "explorer_url": "http://localhost:28080"}}
+        config = {"ingress": {"mode": "bundled", "exposure": "public", "bind_address": "0.0.0.0",
+                              "explorer_url": "http://192.0.2.10:38080"}}
         path = self.root / "bundled-http.conf"
         path.write_text(nginx_config(config))
         name = self.start("http", ["-p", "127.0.0.1::8080"], path)

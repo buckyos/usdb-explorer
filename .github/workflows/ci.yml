@@ -34,6 +34,7 @@ jobs:
       - name: Test independent deployment, ingress and packaging
         run: |
           python3 tests/test_public_services.py
+          python3 tests/test_local_deployment.py
           python3 tests/test_public_installer.py
           python3 tests/test_public_release_publish.py
           python3 tests/test_network_contract.py

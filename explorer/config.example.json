@@ -3,22 +3,20 @@
   "deployment_id": "usdb-testnet-explorer",
   "network": "usdb-testnet-v0",
   "rpc": {
-    "read_url": "http://archive.internal:8545",
-    "trace_url": "http://archive.internal:8545",
-    "broadcast_url": "http://archive.internal:8545",
+    "mode": "local-node",
+    "read_url": "http://127.0.0.1:8545",
     "historical_block": 35,
     "transaction": "0xccb808b8fe97c692ed60f41dd4d69b960d803fccd02ad1f03ddde56661a83af0"
   },
   "ingress": {
-    "mode": "external",
+    "mode": "bundled",
     "exposure": "private",
-    "explorer_url": "http://127.0.0.1:28082",
+    "explorer_url": "http://127.0.0.1:28080",
     "bind_address": "127.0.0.1",
-    "web_port": 28080,
-    "gateway_port": 28081
+    "http_port": 28080
   },
   "resources": {
     "memory_budget_gib": 6,
-    "other_services_memory_gib": 0
+    "other_services_memory_gib": "auto"
   }
 }

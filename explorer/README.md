@@ -1,7 +1,8 @@
 # USDB 浏览器与公共 RPC 独立部署
 
-此目录提供独立的 `usdb-explorer` 工具和发布通道，并保留 `usdb-public` 兼容命令。目标机器不需要安装 `usdb-node`、Bitcoin、
-balance-history 或 USDB indexer，也不需要 clone 源码。上游 USDB 节点通过显式 RPC 地址接入；
+此目录提供独立的 `usdb-explorer` 工具和发布通道，并保留 `usdb-public` 兼容命令。
+新安装默认连接同机 USDB 的 `http://127.0.0.1:8545`，与 `usdb-node` 默认 Docker 部署配合使用。
+也支持在独立机器上通过显式私网 RPC 地址连接远端节点，无需安装节点工具或 clone 源码。
 本工具不启动、停止、重配上游节点，不读取 `node.env`，不加入节点的 Docker network。
 
 ## 当前范围与发布状态
@@ -10,11 +11,11 @@ balance-history 或 USDB indexer，也不需要 clone 源码。上游 USDB 节�
 网络身份来自 `networks/usdb-testnet-v0.json`，来源 USDB commit 与摘要由相邻的契约文件锁定；
 工具的版本是 `vX.Y.Z`，与节点 `usdb-testnet-v0-rN` 分开升级，网络 chain ID 不变。
 
-测试网镜像安全结果采用 `report-only`，允许显式设置 `ingress.exposure=public` 并使用 HTTPS。
+测试网镜像安全结果采用 `report-only`，允许显式设置 `ingress.exposure=public`，使用 HTTP IP＋端口预览或 HTTPS。
 `qualified_for_public_exposure=false` 继续记录尚未完成的镜像验收，不会被自动改为已通过。
 新版本构建扫描完整镜像 lock；High/Critical 漏洞记录在 artifact 中，扫描和证据错误仍阻断发布。
 准备和启动服务时会提示未完成验收；默认配置仍为 private。外部 Nginx 模式必须使用 loopback
-后端绑定；bundled 公网模式可以监听公网地址，但必须配置 HTTPS 证书。
+后端绑定；bundled 公网模式可以监听公网地址，选择 HTTPS 时须配置证书。
 升级到受维护镜像、实际 archive 重放、重组恢复、SourceDAO 合约验证、外部钱包发送交易仍需验收。
 主网尚不支持；测试网的宽松模式不会自动适用于主网。
 
@@ -55,12 +56,56 @@ GitHub Release 同时保留安装包、脚本及各自 `.sha256`，便于离线�
 源码开发时可直接运行 `explorer/usdb-explorer`，此时仅网关在目标 Docker 中从源码构建；
 正式发布包直接使用冻结 digest 的预构建网关，不需要 Go 工具链。
 
-编辑 `~/.config/usdb-public/config.json`，通常只需填写 RPC 地址和浏览器 URL：
+### 同机测试网：默认入口与端口映射
+
+首次安装的默认配置是 `rpc.mode=local-node`、`ingress.mode=bundled`，浏览器入口为
+`http://127.0.0.1:28080`。同机默认 USDB RPC 不需要额外填写；执行下一节的 prepare/preflight/up 即可。
+公网或局域网通过 IP＋端口访问时，先设置访问者实际使用的 URL。例如把外部 `38080`
+映射到测试机 `28080`（`192.0.2.10` 请替换成测试机实际对外 IP）：
+
+```bash
+usdb-explorer configure --local-node \
+  --explorer-url http://192.0.2.10:38080 --http-port 28080
+usdb-explorer prepare
+usdb-explorer preflight
+usdb-explorer up
+```
+
+命令会使用内置 Nginx，并将其绑定到 `0.0.0.0:28080`。在路由器、云平台或宿主机配置
+**TCP 外部 38080 → 测试机 28080**；工具不自动修改防火墙或端口映射。没有转发时，URL
+中的端口与 `--http-port` 使用同一个值即可。只映射浏览器的这个入口，不映射节点的 8545。
+浏览器 API、钱包元数据及 `/rpc` 都使用 `--explorer-url`，因此不能给外部访问者填写 `127.0.0.1`。
+
+已安装 v0.2.2 或更早版本时，先安装包含本功能的新版本。升级会保留原配置；需要显式切换：
+
+```bash
+usdb-explorer configure --local-node \
+  --explorer-url http://192.0.2.10:38080 --http-port 28080
+usdb-explorer down
+usdb-explorer prepare --replace
+usdb-explorer preflight
+usdb-explorer up
+```
+
+如果从未 prepare 过，使用普通 `prepare` 即可。`configure` 会备份输入配置，保留 deployment ID、
+网络、采样交易和其他设置；只有提供 `--explorer-url` 才切换到 bundled 入口。它不修改已准备的
+部署或启动容器，`prepare --replace` 才应用变化并保留数据库凭据、volume。自定义配置继续使用
+`--config`，各生命周期命令继续传入原 `--state-dir`。本地 RPC 改过端口时可加
+`--rpc-url http://127.0.0.1:自定义端口`；此选项同时更新 read/trace/broadcast。
+
+`local-node` 使用两个固定 digest 的小型 Nginx 转发容器：`rpc-host` 访问宿主机 loopback，
+只监听私有共享 volume 内的 Unix socket；`rpc-relay` 在 Explorer 的内部 RPC 网络接入该 socket。
+只有 backend/gateway 加入该内部网络，frontend/proxy 不加入；没有新增宿主机 RPC 监听端口，
+无需修改或重启 USDB。此模式要求本机原生、非 rootless 的 Linux Docker Engine；远端 Docker、
+Docker Desktop 或独立 RPC 服务器使用 `rpc.mode=external`。
+
+更多设置可编辑 `~/.config/usdb-public/config.json`：
 
 | 设置 | 含义 |
 | --- | --- |
 | `deployment_id` | 独立 Compose project 名；同一数据库部署保持不变 |
 | `network` | 包内经过冻结的网络，目前支持 `usdb-testnet-v0` |
+| `rpc.mode` | 新安装为 `local-node`；旧配置省略此项仍按 `external`，不会自动改上游 |
 | `rpc.read_url` | 历史状态查询端点，Blockscout 与公共只读 RPC 使用 |
 | `rpc.trace_url` | 私有 tracing 端点，省略时使用 read_url |
 | `rpc.broadcast_url` | 接收已签名交易的端点，省略时使用 read_url |
@@ -69,13 +114,17 @@ GitHub Release 同时保留安装包、脚本及各自 `.sha256`，便于离线�
 | `rpc.transaction` | 已上链交易，用于 receipt/callTracer 采样；省略时最多向前查找 32 块 |
 | `ingress.explorer_url` | 浏览器的完整 HTTP(S) origin；钱包 RPC 自动为该 origin 加 `/rpc` |
 | `ingress.mode` | `external` 使用现有入口；`bundled` 启动内置 Nginx |
-| `ingress.exposure` | 默认 private；测试网 public 要求 HTTPS，镜像漏洞暂不强制阻断 |
+| `ingress.exposure` | 默认 private；测试网 public 支持临时 HTTP IP＋端口和 HTTPS |
+| `ingress.http_port` | bundled 模式在本机发布的 HTTP 端口，默认 28080；与 URL 中的映射端口独立 |
+| `resources.other_services_memory_gib` | 同机默认 `auto`，按其他运行容器的内存上限计入预算；也可手动声明整数 GiB |
 
 样例内区块 35 的交易是当前 testnet-v0 已知的 SourceDAO 部署交易。网络重置后需重新选择样本，
 工具会拒绝不属于当前 canonical chain 的交易，不能用空 trace 或空 receipt 代替验收。
 
-RPC URL 需从运维主机及 Docker 容器均可到达。容器中的 `127.0.0.1` 是容器自身，不是宿主机。
-优先使用受控私网 DNS/IP；同机上游也应提供容器可达且受访问控制的专用 RPC 接口。
+`external` 模式的 RPC URL 需从运维主机及 Docker 容器均可到达，优先使用受控私网 DNS/IP。
+`local-node` 的 read/trace/broadcast 使用宿主机 HTTP loopback 地址，容器地址由工具转换。
+仅把旧配置中的 RPC 改为 `127.0.0.1` 而不设置 local-node，会让容器连接到自身；
+`host.docker.internal` 也无法直接访问仅监听宿主机 loopback 的端口。
 当前支持 HTTP(S)、系统可信 CA，不接受 URL 用户名、密码或 query；需要鉴权时使用受控网络代理。
 tracing 上游必须提供基本身份和区块查询接口，但不会因此暴露到公共 RPC 网关。
 
@@ -100,15 +149,17 @@ usdb-explorer logs --follow
 数据库凭据和状态目录分别使用 0600、0700 权限，不能把整个状态目录放入 Git。
 生成文件由摘要保护，不要手工修改 `compose.json` 或 `nginx.conf`，应编辑输入配置后执行替换流程。
 
-`up` 先检查 Docker 主机资源、数据库身份、上游能力，再启动自身服务。
+`up` 先检查 Docker 主机资源、数据库身份、上游能力，再启动自身服务。同机模式先启动内部转发容器，
+核对容器侧三个 RPC 路由的网络身份、同步状态与同一 canonical checkpoint，通过后才启动浏览器。
+转发检查失败时不会继续启动浏览器；已启动的转发容器可通过 `logs` 检查，用 `down` 停止。
 Compose project 内只有浏览器服务，没有 archive 或 miner；启动成功不等于索引已经追平。
 历史查询、tracing 或网络身份不满足要求时会报错，不会自动关闭这些功能掩盖缺口。
 
 ## 3. 接入现有 Nginx：external 模式
 
-默认不创建 Nginx 容器。frontend 绑定 `127.0.0.1:28080`，网关绑定 `127.0.0.1:28081`。
+将 `ingress.mode` 设为 `external` 时，不创建入口 Nginx 容器。frontend 绑定 `127.0.0.1:28080`，网关绑定 `127.0.0.1:28081`。
 浏览器域名必须经过完整路由才能使用，直接访问 frontend 端口不是完整浏览器入口。
-示例配置的 `http://127.0.0.1:28082` 用作现有 Nginx 的本机预览入口：
+可将 `explorer_url` 设为 `http://127.0.0.1:28082`，用作现有 Nginx 的本机预览入口：
 
 ```nginx
 server {
@@ -212,8 +263,10 @@ usdb-explorer check
 已有数据库 volume 的网络/凭据指纹不匹配会阻断 up。新目录不能用随机生成的密码接管旧数据库。
 数据库升级可能运行 schema migration，配置备份不是数据库备份，回退镜像前须核对数据兼容性。
 
-同机部署时：公共工具的 `other_services_memory_gib` 必须覆盖其他运行容器的上限，同时保留系统余量。
-其他容器未设置内存上限会拒绝共置。USDB 节点如需缩小自己的预算，可独立使用通用的
+同机部署默认使用 `other_services_memory_gib="auto"`：每次 up 汇总其他**运行中**容器的内存上限，
+向上取整为 GiB，连同 Explorer 预算和系统余量校验；手动整数预算仍须覆盖这些上限。
+这不包含非 Docker 进程或未来启动的容器；这类负载应手动预留预算。其他容器未设置内存上限会拒绝共置，
+内存不足也不会自动降低节点资源或检查标准。USDB 节点如需缩小自己的预算，可独立使用通用的
 `usdb-node set-resource-policy --mode auto --external-memory-budget 6g`，按节点原有流程在停止期间调整。
 该选项不识别 explorer，也不控制它；管理员负责在后续调整时继续保持整机预算一致。
 不要将“当前 RSS 很小”作为永久资源预算。独立机器无需执行任何 `usdb-node` 命令。

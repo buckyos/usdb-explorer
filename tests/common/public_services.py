@@ -49,12 +49,14 @@ class PublicRpcFixture:
 
 
 @contextmanager
-def rpc_server(fixture):
+def rpc_server(fixture, *, request_observer=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
 
         def do_POST(self):
+            if request_observer is not None:
+                request_observer(self.path, self.headers)
             request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             response = {"jsonrpc": "2.0", "id": request["id"]}
             try:

@@ -87,12 +87,23 @@ def load_config(path, kit):
             or type(identity.get("network_id")) is not int or not HASH.fullmatch(str(identity.get("genesis_block_hash", "")))):
         raise ValueError("invalid frozen network identity")
     rpc = value["rpc"]
-    fields(rpc, {"read_url"}, {"trace_url", "broadcast_url", "reference_url", "historical_block", "transaction"})
+    fields(rpc, set(), {"mode", "read_url", "trace_url", "broadcast_url", "reference_url", "historical_block", "transaction"})
+    # Missing mode preserves the original externally reachable RPC contract on upgrade.
+    rpc.setdefault("mode", "external")
+    if rpc["mode"] not in {"external", "local-node"}:
+        raise ValueError("rpc.mode must be external or local-node")
+    if rpc["mode"] == "local-node":
+        rpc.setdefault("read_url", "http://127.0.0.1:8545")
+    if "read_url" not in rpc:
+        raise ValueError("rpc.read_url is required for external RPC mode")
     rpc.setdefault("trace_url", rpc["read_url"])
     rpc.setdefault("broadcast_url", rpc["read_url"])
     for key in ("read_url", "trace_url", "broadcast_url", "reference_url"):
         if key in rpc:
-            endpoint(rpc[key])
+            parsed = endpoint(rpc[key])
+            if rpc["mode"] == "local-node" and key != "reference_url":
+                if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+                    raise ValueError(f"local-node {key} must use an HTTP loopback endpoint")
     if "historical_block" in rpc and (type(rpc["historical_block"]) is not int or rpc["historical_block"] < 0):
         raise ValueError("historical_block must be a nonnegative integer")
     if "transaction" in rpc and not HASH.fullmatch(str(rpc["transaction"])):
@@ -113,9 +124,9 @@ def load_config(path, kit):
     if ingress["exposure"] == "private" and not address.is_loopback:
         raise ValueError("private deployments must bind loopback")
     if ingress["mode"] == "external" and not address.is_loopback:
-        raise ValueError("external ingress requires loopback bindings behind the HTTPS proxy")
+        raise ValueError("external ingress requires loopback bindings behind the operator's proxy")
     if ingress["exposure"] == "public":
-        if origin.scheme != "https":
+        if origin.scheme != "https" and security_enforcement(value["network"]) == "strict":
             raise ValueError("public exposure requires HTTPS")
         if security_enforcement(value["network"]) == "strict" and not image_lock(kit)["qualified_for_public_exposure"]:
             raise ValueError("strict public exposure requires qualified release images")
@@ -143,11 +154,45 @@ def load_config(path, kit):
     resources = value.setdefault("resources", {})
     fields(resources, set(), {"memory_budget_gib", "other_services_memory_gib"})
     resources.setdefault("memory_budget_gib", 6)
-    resources.setdefault("other_services_memory_gib", 0)
+    resources.setdefault("other_services_memory_gib", "auto" if rpc["mode"] == "local-node" else 0)
     for key, number in resources.items():
+        if key == "other_services_memory_gib" and number == "auto":
+            continue
         if type(number) is not int or number < (6 if key == "memory_budget_gib" else 0):
             raise ValueError(f"invalid resource budget: {key}")
     return value, identity
+
+
+def container_rpc(config):
+    """Translate only the colocated node endpoints; host acceptance keeps loopback URLs."""
+    rpc = dict(config["rpc"])
+    if rpc.get("mode") == "local-node":
+        for route in ("read", "trace", "broadcast"):
+            rpc[route + "_url"] = "http://rpc-relay:8080/" + route
+    return rpc
+
+
+def local_rpc_config(config, *, host):
+    """Bridge Docker to host loopback through a private socket, without a host TCP listener."""
+    listen = "unix:/run/usdb-rpc/upstream.sock" if host else "8080"
+    routes = []
+    for route in ("read", "trace", "broadcast"):
+        upstream = config["rpc"][route + "_url"] if host else "http://unix:/run/usdb-rpc/upstream.sock:/" + route
+        parsed = endpoint(upstream) if host else None
+        if host and not parsed.path:
+            upstream += "/"
+        # Use the configured node host, not rpc-relay, to satisfy the node's HTTP vhost policy.
+        header = f"proxy_set_header Host {parsed.netloc};" if host else ""
+        routes.append(f"    location = /{route} {{\n"
+                      f"        if ($request_method != POST) {{ return 405; }}\n"
+                      f"        {header}\n        proxy_pass {upstream};\n    }}\n")
+    return ("worker_processes 1;\npid /tmp/nginx.pid;\nerror_log /dev/stderr warn;\n"
+            "events { worker_connections 256; }\nhttp {\n    access_log off;\n    server_tokens off;\n"
+            "    client_max_body_size 10m;\n    proxy_connect_timeout 5s;\n    proxy_read_timeout 120s;\n"
+            "    proxy_send_timeout 120s;\n    proxy_http_version 1.1;\n    proxy_buffering off;\n"
+            f"    server {{\n    listen {listen};\n"
+            + ("" if host else "    location = /healthz { return 200 'relay ready'; }\n")
+            + "".join(routes) + "    location / { return 404; }\n    }\n}\n")
 
 
 def wallet_network(config, identity):
@@ -198,7 +243,7 @@ def nginx_config(config, *, external=False):
 def compose_document(config, identity, lock, root):
     """Own only explorer services; upstream nodes are never a Compose dependency."""
     images = {key: value["reference"] for key, value in lock["images"].items()}
-    ingress, rpc = config["ingress"], config["rpc"]
+    ingress, rpc = config["ingress"], container_rpc(config)
     url = endpoint(ingress["explorer_url"], origin=True)
     credentials = read_json(root / "credentials.json")
     def service(image, memory, cpus, **options):
@@ -269,6 +314,27 @@ def compose_document(config, identity, lock, root):
             volumes.append(f"{ingress['tls']['certificate_dir']}:/tls:ro")
         services["proxy"] = service(images["nginx"], "128m", .25, networks=["app"], ports=ports, volumes=volumes,
             depends_on={name: {"condition": "service_started"} for name in ("frontend", "gateway")})
-    return {"name": config["deployment_id"], "services": services,
+    document = {"name": config["deployment_id"], "services": services,
             "networks": {"database": {"internal": True}, "app": {}},
             "volumes": {"postgres-data": {"labels": database_labels}, "backend-data": {}}}
+    if rpc.get("mode") == "local-node":
+        document["networks"]["rpc"] = {"internal": True}
+        document["volumes"]["rpc-socket"] = {}
+        for name in ("rpc-host", "rpc-relay"):
+            services[name] = service(images["nginx"], "64m", .25,
+                entrypoint=["nginx", "-g", "daemon off;"], read_only=True,
+                cap_drop=["NET_RAW", "NET_BIND_SERVICE"],
+                tmpfs=["/tmp:size=16m", "/var/cache/nginx:size=16m"],
+                volumes=[f"{root}/{name}.conf:/etc/nginx/nginx.conf:ro",
+                         "rpc-socket:/run/usdb-rpc" + (":ro" if name == "rpc-relay" else "")])
+        services["rpc-host"]["network_mode"] = "host"
+        services["rpc-host"]["healthcheck"] = {"test": ["CMD", "test", "-S", "/run/usdb-rpc/upstream.sock"],
+                                              "interval": "2s", "timeout": "2s", "retries": 15}
+        services["rpc-relay"].update(networks=["rpc"], depends_on={"rpc-host": {"condition": "service_healthy"}},
+            healthcheck={"test": ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"],
+                         "interval": "2s", "timeout": "2s", "retries": 15})
+        for name in ("backend", "gateway"):
+            services[name]["networks"].append("rpc")
+            services[name].pop("extra_hosts")
+            services[name].setdefault("depends_on", {})["rpc-relay"] = {"condition": "service_healthy"}
+    return document

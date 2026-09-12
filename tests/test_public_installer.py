@@ -61,6 +61,26 @@ class PublicInstallerTests(unittest.TestCase):
         self.assertIn("~/.config/usdb-public/config.json", "".join(command.stdout.split()))
         self.assertFalse((self.root / "node.env").exists())
 
+    def test_installed_command_can_configure_and_prepare_same_host_http_ingress(self):
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        initial = json.loads(self.config.read_text())
+        self.assertEqual(initial["rpc"]["mode"], "local-node")
+        self.assertEqual(initial["rpc"]["read_url"], "http://127.0.0.1:8545")
+        self.assertEqual(initial["ingress"]["mode"], "bundled")
+        state = self.root / "state"
+        commands = [["configure", "--local-node", "--config", str(self.config),
+                     "--explorer-url", "http://192.0.2.10:38080", "--http-port", "28080"],
+                    ["prepare", "--config", str(self.config), "--state-dir", str(state)]]
+        for arguments in commands:
+            command = subprocess.run([str(self.commands / "usdb-explorer"), *arguments], env=self.env,
+                                     text=True, capture_output=True, timeout=10)
+            self.assertEqual(command.returncode, 0, command.stderr)
+        document = json.loads((state / "compose.json").read_text())
+        self.assertEqual(document["services"]["proxy"]["ports"], ["0.0.0.0:28080:8080"])
+        self.assertNotIn("build", document["services"]["gateway"])
+        self.assertTrue((state / "rpc-host.conf").is_file())
+
     def test_reinstall_and_upgrade_preserve_operator_config_and_deployment_data(self):
         self.assertEqual(self.run_installer().returncode, 0)
         self.config.write_text('{"operator_settings":"keep exactly"}\n')

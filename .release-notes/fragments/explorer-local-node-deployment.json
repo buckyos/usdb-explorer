@@ -1,0 +1,26 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-local-node-deployment",
+  "type": "added",
+  "scopes": ["deployment", "explorer", "documentation", "testing"],
+  "summary": "支持同机默认 Docker 节点的 loopback RPC，无需修改或重启 USDB",
+  "details": [
+    "新安装默认使用 local-node RPC 与 bundled Nginx，连接宿主机 http://127.0.0.1:8545，浏览器本机入口为 http://127.0.0.1:28080。",
+    "两个固定 digest 的内部转发容器通过私有 Unix socket 连接宿主机 loopback；只有 backend/gateway 加入内部 RPC 网络，不新增宿主机 RPC TCP 端口，不加入节点网络。",
+    "configure --local-node 备份并更新输入配置，保留部署身份、采样设置与手动非零资源预留；已准备的部署通过原有 down/prepare --replace/up 流程应用，凭据和数据库 volume 保持不变。旧配置缺少 rpc.mode 时继续使用 external。",
+    "同机模式默认按其他运行容器的内存上限自动计入预算，超额或无上限容器仍会阻断启动；不自动修改节点资源。非 Docker 或未来负载仍需手动预留。",
+    "up 在启动浏览器前检查三个容器 RPC 路由的网络身份、同步状态和 canonical checkpoint；转发失败会停止后续启动，可检查转发日志或执行 down。只支持本机原生非 rootless Linux Docker Engine。",
+    "上游连接错误区分 DNS、拒绝连接、超时、TLS 与 HTTP 状态，不再只显示 URLError，也不输出私有 RPC URL。"
+  ],
+  "operator_actions": [
+    "已有安装需升级到包含本功能的版本；切换时执行 configure --local-node，然后 down、prepare --replace、preflight、up。使用原配置和 state-dir，保留 deployment ID。",
+    "需要外部入口时在 configure 中指定 --explorer-url；内存不足时按节点原有流程预留 Explorer 的 6 GiB 预算。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": true,
+    "restart_required": true
+  },
+  "references": []
+}

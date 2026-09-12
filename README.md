@@ -1,7 +1,8 @@
 # USDB Explorer
 
 USDB 区块浏览器与公共 RPC 接入服务。包含 Blockscout 集成、USDB 展示适配、受限 RPC gateway、
-可选 Nginx，以及独立安装、备份、升级与发版工具。通过配置的 RPC 上游访问 USDB 节点。
+内置 Nginx，以及独立安装、备份、升级与发版工具。新安装默认连接同机 USDB 的 loopback RPC，
+也支持独立机器上的私网 RPC 上游。
 
 本工程从 `buckyos/usdb` 的 `0b946e03c71f70e6dfe0bb1bc44d9e6b3ce803ec` 迁出，来源路径记录在
 [MIGRATION.json](MIGRATION.json)。新版本使用本仓库的 `vX.Y.Z`，不要求创建节点 `rN` 或更新节点 release lock。
@@ -66,7 +67,7 @@ gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref v0.2.1
 打 tag 前会报告未分类提交；Build 生成变更 JSON、checksum、Markdown 和 Release 正文，
 Publish 从固定源码重验。工作流与兼容性比较见 [变更记录管理](docs/release-change-management.md)。
 
-测试网采用镜像安全 `report-only` 模式，并允许显式配置 public + HTTPS。漏洞及未完成验收状态
+测试网采用镜像安全 `report-only` 模式，并允许显式配置 public + HTTP 的 IP/端口预览或 HTTPS。漏洞及未完成验收状态
 继续保留；扫描失败、digest/source 不符、证据损坏仍阻断发布。维护者可手工运行 strict 审查。
 完整策略见 [镜像安全与测试网发布](docs/image-security.md)。真实 archive、重组恢复、合约验证和
 钱包广播仍需独立验收；原始结果见 [历史验收记录](docs/usdb-public-testnet-services-plan.md)。

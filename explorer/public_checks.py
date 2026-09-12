@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import re
+import socket
+import ssl
 import urllib.error
 import urllib.request
 
@@ -39,19 +41,35 @@ def fetch(url, payload=None):
         if len(body) > 8 * 1024**2:
             raise ValueError("response exceeds the acceptance size limit")
         return json.loads(body)
-    except (OSError, urllib.error.URLError, ValueError) as error:
-        raise ValueError(f"HTTP endpoint unavailable or malformed ({type(error).__name__})") from None
+    except urllib.error.HTTPError as error:
+        raise ValueError(f"HTTP endpoint returned status {error.code}; check the upstream RPC listener and access policy") from None
+    except (OSError, urllib.error.URLError) as error:
+        reason = error.reason if isinstance(error, urllib.error.URLError) else error
+        if isinstance(reason, socket.gaierror):
+            message = "DNS lookup failed; configure a reachable RPC hostname or use configure --local-node"
+        elif isinstance(reason, ConnectionRefusedError):
+            message = "connection refused; check that the node is running and its RPC listen address/port match the configuration"
+        elif isinstance(reason, TimeoutError):
+            message = "connection timed out; check RPC reachability and firewall rules"
+        elif isinstance(reason, ssl.SSLError):
+            message = "TLS verification/connection failed; check the upstream certificate and trusted CA"
+        else:
+            message = "connection failed; check RPC address, routing and listener configuration"
+        raise ValueError(message) from None
+    except ValueError:
+        raise ValueError("HTTP endpoint returned invalid JSON or an oversized response; check that the configured endpoint serves RPC") from None
 
 
 class ReadRpc:
-    def __init__(self, url):
+    def __init__(self, url, *, fetcher=fetch):
         endpoint(url)
         self.url = url
+        self.fetcher = fetcher
 
     def __call__(self, method, params):
         if method not in READ_METHODS:
             raise ValueError("acceptance refuses non-read-only RPC methods")
-        value = fetch(self.url, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        value = self.fetcher(self.url, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
         if not isinstance(value, dict) or value.get("jsonrpc") != "2.0" or value.get("id") != 1 or "error" in value or "result" not in value:
             raise ValueError(f"RPC {method} failed or returned an invalid envelope")
         return value["result"]

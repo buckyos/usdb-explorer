@@ -1,0 +1,23 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-testnet-http-ingress",
+  "type": "added",
+  "scopes": ["deployment", "explorer", "security", "documentation", "testing"],
+  "summary": "测试网支持 HTTP IP 加映射端口的完整浏览器入口",
+  "details": [
+    "受支持的测试网允许显式配置 public HTTP origin，无需证书即可通过内置 Nginx 访问浏览器、受限 RPC、浏览器 API 与钱包网络元数据。默认 exposure 仍为 private，主网仍不支持。",
+    "configure --local-node --explorer-url 可切换 bundled 入口；非 loopback URL 默认绑定 0.0.0.0，--http-port 控制本机端口，浏览器和钱包使用 URL 中的外部端口，支持两者不同的 NAT 映射。",
+    "公网仍只发布入口 Nginx；数据库、backend 和节点原始 RPC 不发布到公网，公共 RPC 方法及 API 路由限制继续执行。HTTPS 模式保留证书校验、重定向与 reload 行为。"
+  ],
+  "operator_actions": [
+    "将 --explorer-url 设置为访问者实际使用的 HTTP IP/端口，并在现有端口映射设施中只转发浏览器的 --http-port；不转发节点 8545。",
+    "已有部署修改入口后执行 down、prepare --replace、up，保留原配置路径、state-dir 和数据库身份。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": true,
+    "restart_required": true
+  },
+  "references": []
+}

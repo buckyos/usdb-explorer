@@ -48,8 +48,9 @@ gh workflow run release-security-review.yml --repo buckyos/usdb-explorer --ref v
 ## 部署行为
 
 原配置 schema、路径、deployment ID、凭据和数据库 volume 保持兼容；默认 exposure 仍为 private。
-testnet-v0 可以显式配置 `ingress.exposure=public` 与 HTTPS；prepare/up 会提示未完成镜像验收。
-external 模式的 frontend/gateway 端口始终绑定 loopback，由操作者的 HTTPS 反向代理提供公网入口。
-bundled 模式可使用公网监听地址，但要求已有证书，HTTP 仅重定向到配置的 HTTPS origin。
+testnet-v0 可以显式配置 `ingress.exposure=public`，使用临时 HTTP IP＋端口预览或 HTTPS；
+prepare/up 会提示未完成镜像验收。external 模式的 frontend/gateway 端口始终绑定 loopback，
+由操作者的反向代理提供入口。bundled 模式可使用公网监听地址；选择 HTTPS 时要求已有证书，
+并将 HTTP 重定向到配置的 HTTPS origin。HTTP 例外只适用于支持的测试网，不改变主网策略。
 数据库和 Blockscout backend 不发布宿主机端口，RPC 白名单、上游网络身份、历史状态/tracing、
 资源限额和数据身份检查继续执行。真实 archive/reorg/合约验证/钱包验收状态不因本策略调整而改变。
