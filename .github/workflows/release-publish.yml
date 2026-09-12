@@ -19,6 +19,11 @@ jobs:
     if: github.repository == 'buckyos/usdb-explorer'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # GitHub only lists draft releases for callers with push access.
+    # Preflight performs reads; promotion remains in the environment-gated job.
+    permissions:
+      actions: read
+      contents: write
     outputs:
       fingerprint: ${{ steps.release.outputs.fingerprint }}
     steps:

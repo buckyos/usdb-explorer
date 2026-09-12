@@ -42,6 +42,28 @@ workflow 拒绝分支 dispatch，并要求选中 tag、dispatch commit 和 check
 Build 和 Publish 共用该 tag 的并发锁，全部附件匿名下载逐一核对。
 已发布版本重跑只校验；代码或附件内容变化须使用新 tag。
 
+Publish 预检必须显式申请 `contents: write`：GitHub 的 Release 列表只向有 push 权限的调用者
+返回草稿，`contents: read` 可能只返回已发布版本，即使对应 tag build 已成功。
+预检代码仍只做读取和校验，公开发布保留在独立 environment 后的 job。
+缺少草稿时先核查 token 权限和原 build 的草稿创建记录。
+
+### 已有 v0.2.1 草稿的权限修复
+
+`v0.2.1` 的 tag build 已成功，但 tag 内的旧 Publish 预检只有 `contents: read`；修改 `main`
+不会改变其历史 workflow，直接重跑旧任务仍会使用旧权限。无需移动 tag 或重建原附件。
+维护者可以在本仓库使用有 push 权限的 GitHub 凭据运行现有发布脚本：
+
+```bash
+python3 explorer/publish_release.py preflight --release-id v0.2.1
+# Review the source, assets, notes and fingerprint printed above before publishing.
+python3 explorer/publish_release.py publish --release-id v0.2.1 \
+  --expected-fingerprint 'FINGERPRINT_FROM_PREFLIGHT'
+```
+
+脚本会重新核验预检指纹并发布同一草稿，随后验证全部匿名下载。
+此维护者 CLI 路径不经过 Actions environment 审批，须由维护者明确批准后执行。
+后续包含权限修复的新 tag 使用正常 Publish workflow。
+
 ## v0.2.0 Publish 过渡
 
 `v0.2.0` 固定在 `82aeaaf`，其中旧 Publish workflow 要求从 `main` 执行并输入 `release_id`。

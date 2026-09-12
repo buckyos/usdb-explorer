@@ -154,11 +154,15 @@ def inspect_release(api, repo, release_id, *, expected_source_revision=None):
     run = resolve_build(api.json(
         f"actions/workflows/release-build.yml/runs?event=push&head_sha={revision}&per_page=100",
         paginate=True), release_id, revision)
-    # Listing releases also finds authenticated drafts, whose public tag URLs still return 404.
+    # Drafts are listed only with push access, including for this read-only preflight.
     matches = [r for page in api.json("releases?per_page=100", paginate=True) for r in page
                if r.get("tag_name") == release_id]
+    if not matches:
+        raise ValueError(f"no visible GitHub Release for {release_id} after successful build {run['id']}; "
+                         "draft release discovery requires contents: write (push access). "
+                         "Check the Publish preflight token permissions and the build's existing draft.")
     if len(matches) != 1:
-        raise ValueError("expected one existing public release; run the tag build and wait for its draft")
+        raise ValueError(f"multiple GitHub Releases found for {release_id}; expected exactly one existing release")
     release = matches[0]
     structured_notes = RELEASE_NOTES.requires_notes(repo, revision)
     assets = release_assets(release, release_id, structured_notes=structured_notes)

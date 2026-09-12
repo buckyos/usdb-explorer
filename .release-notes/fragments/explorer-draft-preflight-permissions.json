@@ -1,0 +1,22 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-draft-preflight-permissions",
+  "type": "fixed",
+  "scopes": ["release", "documentation", "testing"],
+  "summary": "允许 Publish 预检读取已构建的 Release 草稿",
+  "details": [
+    "预检 job 显式申请 contents: write；GitHub 仅向具备 push 权限的调用者返回草稿，因此 contents: read 会导致已有草稿被误判为不存在。",
+    "预检继续只读验证原始构建、源码、release notes 和附件；实际公开发布仍由独立 environment 后的 Publish job 执行。",
+    "构建成功但找不到可见 Release 时，报错指出草稿读取权限要求，避免误导维护者重新构建或更换版本。"
+  ],
+  "operator_actions": [],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": false
+  },
+  "references": [
+    "https://docs.github.com/en/rest/releases/releases#list-releases"
+  ]
+}

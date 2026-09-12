@@ -117,6 +117,33 @@ class PublicReleasePublishTests(unittest.TestCase):
             self.inspect()
         self.assertEqual(self.api.writes, [])
 
+    def test_hidden_draft_reports_required_access_after_a_successful_build(self):
+        original_json = self.api.json
+
+        def read(endpoint, **kwargs):
+            if endpoint == "releases?per_page=100":
+                return [[]]
+            return original_json(endpoint, **kwargs)
+
+        with patch.object(self.api, "json", side_effect=read), patch.object(self.api, "download") as download:
+            with self.assertRaisesRegex(ValueError, "successful build 101.*contents: write"):
+                self.inspect()
+            download.assert_not_called()
+        self.assertEqual(self.api.writes, [])
+
+    def test_duplicate_release_records_are_not_misreported_as_missing_permissions(self):
+        original_json = self.api.json
+
+        def read(endpoint, **kwargs):
+            if endpoint == "releases?per_page=100":
+                return [[deepcopy(self.api.release)], [deepcopy(self.api.release)]]
+            return original_json(endpoint, **kwargs)
+
+        with patch.object(self.api, "json", side_effect=read):
+            with self.assertRaisesRegex(ValueError, "multiple GitHub Releases"):
+                self.inspect()
+        self.assertEqual(self.api.writes, [])
+
     def test_missing_extra_duplicate_and_incomplete_assets_are_rejected(self):
         original = deepcopy(self.api.release["assets"])
         variants = [original[:-1], original + [original[0]], original[:-1] + [original[0]]]
