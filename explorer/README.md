@@ -96,7 +96,8 @@ usdb-explorer up
 ```
 
 如果从未 prepare 过，使用普通 `prepare` 即可。`configure` 会备份输入配置，保留 deployment ID、
-网络、采样交易和其他设置；只有提供 `--explorer-url` 才切换到 bundled 入口。它不修改已准备的
+网络、采样交易和其他设置（显式使用 `--auto-samples` 时移除固定高度和交易）；只有提供
+`--explorer-url` 才切换到 bundled 入口。它不修改已准备的
 部署或启动容器，`prepare --replace` 才应用变化并保留数据库凭据、volume。自定义配置继续使用
 `--config`，各生命周期命令继续传入原 `--state-dir`。本地 RPC 改过端口时可加
 `--rpc-url http://127.0.0.1:自定义端口`；此选项同时更新 read/trace/broadcast。
@@ -127,8 +128,9 @@ Docker Desktop 或独立 RPC 服务器使用 `rpc.mode=external`。
 | `ingress.http_port` | bundled 模式在本机发布的 HTTP 端口，默认 28080；与 URL 中的映射端口独立 |
 | `resources.other_services_memory_gib` | 同机默认 `auto`，按其他运行容器的内存上限计入预算；也可手动声明整数 GiB |
 
-样例内区块 35 的交易是当前 testnet-v0 已知的 SourceDAO 部署交易。网络重置后需重新选择样本，
-工具会拒绝不属于当前 canonical chain 的交易，不能用空 trace 或空 receipt 代替验收。
+新安装默认自动选择样本，不绑定某个测试网高度或交易。旧版模板曾固定高度 35 和一笔交易，
+升级不会覆盖已有配置；可按下文清除旧样本。显式指定的高度越界或交易不在 canonical chain
+时仍会报错，不会自动忽略运维指定的验证目标。
 
 `external` 模式的 RPC URL 需从运维主机及 Docker 容器均可到达，优先使用受控私网 DNS/IP。
 `local-node` 的 read/trace/broadcast 使用宿主机 HTTP loopback 地址，容器地址由工具转换。
@@ -164,6 +166,39 @@ usdb-explorer logs --follow
 Compose project 内只有浏览器服务，没有 archive 或 miner；启动成功不等于索引已经追平。
 历史查询、tracing 或网络身份不满足要求时会报错，不会自动关闭这些功能掩盖缺口。
 
+### 首节点尚未挖矿：先启动浏览器
+
+首节点只有 genesis（高度 0）、尚未进入 mining 时，可以先启动完整 Explorer；不要求它连接
+其他 peer 或先制造一笔交易。此时页面尚无普通区块和已上链交易，区块列表可能为空或仅包含
+genesis。完整的索引和 tracing 配置保持开启，后续出块、产生交易时由索引器继续处理，无需切换模式。
+
+自动采样没有找到已上链交易时，`preflight` 返回 `PREFLIGHT_READY_NO_TRANSACTION_SAMPLE`，
+`up` 显示等待采样的提示并继续启动。仍检查所有 RPC 路由的网络身份、同步响应、区块一致性和
+可用状态；两个 tracing 方法必须能响应。Geth 对 genesis/不存在交易的特定错误只用于验证方法
+可达，不能证明真实交易执行或 `callTracer` 已通过。方法未开放、超时、鉴权失败和历史状态缺失
+仍会阻止启动。这里的零 peer 本身不构成错误，也不能用采样通过证明其他节点已经追平网络。
+
+`trace_sample=pending_no_transaction_sample` 明确表示真实交易验证尚未执行；genesis 状态检查也不
+证明 archive 历史覆盖。`check` 在 genesis 阶段验证公共 RPC 和浏览器的空列表（允许 genesis
+区块），不会强求不存在的交易详情；API 故障或残留旧链区块/已上链交易仍会报错。
+开始出块、产生交易后执行 `usdb-explorer check`，自动发现窗口内交易便恢复 receipt/callTracer
+实际验证。自动搜索限于最近 32 块；较长时间没有交易时仍会报告等待样本，可指定一笔更早的
+canonical 交易完成验收，不能把等待样本当作完整验收通过。
+
+对于 0.2.3 或更早模板保留的固定样本，安装包含此改进的版本后执行：
+
+```bash
+usdb-explorer configure --local-node --auto-samples
+usdb-explorer down
+usdb-explorer prepare --replace
+usdb-explorer preflight
+usdb-explorer up
+```
+
+`configure` 备份源配置，保留现有本地 RPC 地址、浏览器 URL 和端口；`prepare --replace` 保留凭据和
+数据库 volume。若从未 prepare，使用普通 `prepare`。external 模式可从源配置中移除
+`rpc.historical_block`、`rpc.transaction` 后执行相同的替换流程，不必切换 RPC 模式。
+
 ### preflight 能力诊断
 
 `preflight`、`up` 的上游检查以及 `check` 共用完整模式要求。RPC 错误会显示稳定分类、
@@ -173,6 +208,7 @@ Compose project 内只有浏览器服务，没有 archive 或 miner；启动成�
 
 | 错误分类 | 含义与处理方向 |
 | --- | --- |
+| `SAMPLE_ABOVE_HEAD` | 固定历史采样高度超过观察链头；提示实际两个高度，等待目标区块或清除旧样本并重新 prepare，不据此认定缺少 archive |
 | `HISTORICAL_STATE_UNAVAILABLE` | 采样所需状态缺失，可能已裁剪或不完整；需要覆盖该区块的 archive。启用 archive 不会补回旧数据，应保留原目录，通过独立目录从 genesis 执行或恢复完整 archive 备份 |
 | `TRACING_UNAVAILABLE` | tracing 方法未开放或被代理拦截；在兼容版本的 USDB 上游主机执行 `down` → `set-query-mode --tracing on` → `up`，检查私有代理是否允许两个 `debug_trace*` 方法，RPC 继续保持私有 |
 | `RPC_DNS` / `RPC_CONNECTION_REFUSED` / `RPC_CONNECTION` | 检查地址解析、节点是否运行、RPC 监听端口和路由；同机部署使用 `configure --local-node`，参数变更仍按 prepare 替换流程应用 |

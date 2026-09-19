@@ -116,6 +116,25 @@ class LocalDeploymentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "supported USDB testnet"):
             CONFIG.load_config(self.input, PUBLIC.KIT)
 
+    def test_auto_samples_removes_only_pins_and_preserves_prepared_state_until_replace(self):
+        self.config["rpc"].update(historical_block=35, transaction="0x" + "ab" * 32)
+        self.save()
+        before = self.input.read_bytes()
+        self.prepare()
+        prepared = {p.name: p.read_bytes() for p in self.state.iterdir() if p.is_file()}
+        config = self.configure("--auto-samples")
+        for key in ("historical_block", "transaction"):
+            self.assertNotIn(key, config["rpc"])
+        self.assertEqual(config["deployment_id"], self.config["deployment_id"])
+        self.assertEqual(config["ingress"]["explorer_url"], self.config["ingress"]["explorer_url"])
+        self.assertEqual(list(self.root.glob("config.json.backup-*"))[0].read_bytes(), before)
+        self.assertEqual({p.name: p.read_bytes() for p in self.state.iterdir() if p.is_file()}, prepared)
+        with mock.patch.object(PUBLIC, "require_stopped"):
+            PUBLIC.prepare(self.input, self.state, replace=True)
+        self.assertNotIn("transaction", CONFIG.read_json(self.state / "config.json")["rpc"])
+        self.assertEqual((self.state / "credentials.json").read_bytes(), prepared["credentials.json"])
+        self.assertEqual(CONFIG.read_json(self.state / "compose.json")["volumes"], json.loads(prepared["compose.json"])["volumes"])
+
     def test_auto_budget_counts_caps_and_still_rejects_overcommit_or_uncapped_services(self):
         doc = self.prepare()
         config = CONFIG.read_json(self.state / "config.json")

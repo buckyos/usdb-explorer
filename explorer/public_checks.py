@@ -14,6 +14,7 @@ READ_METHODS = {"eth_chainId", "net_version", "eth_syncing", "eth_getBlockByNumb
                 "eth_getCode", "eth_call", "eth_getTransactionReceipt", "debug_traceTransaction", "debug_traceBlockByNumber"}
 TRACE_METHODS = {"debug_traceTransaction", "debug_traceBlockByNumber"}
 STATE_METHODS = {"eth_getBalance", "eth_getCode", "eth_call"}
+MISSING_TRANSACTION = "0x" + "00" * 32
 
 
 class RpcFailure(ValueError):
@@ -38,7 +39,15 @@ def rpc_failure(method, params, code, message):
     """Classify a well-formed RPC error without echoing its message or data."""
     operation = rpc_operation(method, params)
     text = message.lower()
-    if code == 3 or text.startswith("execution reverted"):
+    if code == -32000 and params and (
+            (method == "debug_traceBlockByNumber" and params[0] == "0x0" and text == "genesis is not traceable")
+            or (method == "debug_traceTransaction" and params[0] == MISSING_TRANSACTION
+                and text in {"genesis is not traceable", "transaction not found"})):
+        # Geth 1.10 reports the genesis error for an unknown transaction too. Accept
+        # it only for our absent-transaction probe, never for a real mined sample.
+        category = "TRACE_SAMPLE_UNAVAILABLE"
+        advice = "tracing method responded, but this probe has no executable transaction; real callTracer validation remains pending."
+    elif code == 3 or text.startswith("execution reverted"):
         category = "RPC_EXECUTION_ERROR"
         advice = "EVM execution reverted; verify the sample and chain state in node logs. A contract revert does not establish missing archive or tracing support."
     elif any(marker in text for marker in ("unauthorized", "authentication required", "access denied", "forbidden", "invalid api key")):
@@ -205,8 +214,35 @@ def same_checkpoint(rpc, checkpoint):
         raise ValueError("upstream canonical checkpoint changed or differs between endpoints")
 
 
+def pending_trace_sample(trace, head):
+    """Require both trace methods even when no mined transaction is available."""
+    try:
+        trace("debug_traceTransaction", [MISSING_TRANSACTION, {"tracer": "callTracer", "timeout": "5s"}])
+    except RpcFailure as error:
+        if error.category != "TRACE_SAMPLE_UNAVAILABLE":
+            raise
+    else:
+        raise RpcFailure("RPC_INVALID_RESPONSE", "trace_url: RPC debug_traceTransaction: expected an absent-transaction error for the capability probe")
+    try:
+        result = trace("debug_traceBlockByNumber", [head["number"], {"tracer": "callTracer", "timeout": "5s"}])
+    except RpcFailure as error:
+        if quantity(head["number"]) != 0 or error.category != "TRACE_SAMPLE_UNAVAILABLE":
+            raise
+    else:
+        if quantity(head["number"]) == 0 or result != []:
+            raise RpcFailure("RPC_INVALID_RESPONSE", "trace_url: RPC debug_traceBlockByNumber: unexpected empty-chain probe result")
+
+
+def same_genesis_head(clients, head):
+    """Do not mistake a lagging route or a newly mined block for a genesis-only chain."""
+    for client in clients:
+        current = block(client, "latest")
+        if quantity(current["number"]) != 0 or current["hash"].lower() != head["hash"].lower():
+            raise ValueError("upstream advanced or endpoints disagree during genesis checks; rerun preflight")
+
+
 def preflight(config, identity, *, rpc_factory=ReadRpc):
-    """Require historical and trace samples, without claiming complete archive qualification."""
+    """Check full-mode capabilities; defer real tracing only when automatic sampling finds no transaction."""
     settings = config["rpc"]
     clients = {name: named_rpc(rpc_factory(settings[name]), name) for name in ("read_url", "trace_url", "broadcast_url")}
     if settings.get("reference_url"):
@@ -223,9 +259,12 @@ def preflight(config, identity, *, rpc_factory=ReadRpc):
     # Pin the reference first. A stale archive cannot pass by agreeing with its own explorer.
     for client in clients.values():
         same_checkpoint(client, head)
-    height = settings.get("historical_block", max(0, quantity(head["number"]) - 256))
-    if height > quantity(head["number"]):
-        raise ValueError("historical sample is above the observed head")
+    head_height = quantity(head["number"])
+    height = settings.get("historical_block", max(0, head_height - 256))
+    if height > head_height:
+        raise RpcFailure("SAMPLE_ABOVE_HEAD", f"configured rpc.historical_block={height} exceeds observed head {head_height}; "
+                         "wait for the intended block, or remove rpc.historical_block and rpc.transaction from the source config for automatic sampling, "
+                         "then run down and prepare --replace. Local-node users can use configure --local-node --auto-samples.")
     historical = block(read, hex(height))
     address = head.get("miner", "0x" + "00" * 20)
     if not isinstance(address, str) or not re.fullmatch(r"0x[0-9a-fA-F]{40}", address):
@@ -242,16 +281,39 @@ def preflight(config, identity, *, rpc_factory=ReadRpc):
     transaction = settings.get("transaction")
     if transaction is None:
         # Bound discovery on quiet networks; the operator can choose an older transaction explicitly.
-        for number in range(quantity(head["number"]), max(-1, quantity(head["number"]) - 32), -1):
+        for number in range(head_height, max(-1, head_height - 32), -1):
             sample = block(read, hex(number))
             if sample["transactions"]:
                 transaction = sample["transactions"][0]
                 break
+    report = {"schema_version": "usdb-public-check:v1", "status": "PREFLIGHT_PASSED",
+              "checkpoint": {"number": head_height, "hash": head["hash"]},
+              "historical_sample": {"number": height, "hash": historical["hash"]}, "transaction": transaction,
+              "reference_check": "passed" if "reference_url" in clients else "not_configured",
+              "historical_state_sample": "passed", "trace_sample": "passed",
+              "archive_replay_qualification": "not_run", "wallet_broadcast_acceptance": "not_run",
+              "public_tls_acceptance": "not_run", "reward_supply_qualification": "not_run"}
+    if transaction is None and "transaction" not in settings:
+        pending_trace_sample(clients["trace_url"], head)
+        for client in clients.values():
+            same_checkpoint(client, head)
+        same_checkpoint(read, historical)
+        if head_height == 0:
+            same_genesis_head(clients.values(), head)
+        report.update(status="PREFLIGHT_READY_NO_TRANSACTION_SAMPLE",
+                      chain_state="genesis_only" if head_height == 0 else "no_recent_transaction_sample",
+                      historical_state_sample="genesis_only" if head_height == 0 else "passed",
+                      trace_sample="pending_no_transaction_sample", trace_methods="available",
+                      warnings=["No mined transaction found in the automatic sample window. Full Explorer may start; "
+                                "receipt and callTracer execution validation are pending. Run check after transactions are mined, "
+                                "or set rpc.transaction to an older canonical transaction and re-prepare. "
+                                "This does not certify complete archive coverage or network synchronization."])
+        return report
     if not isinstance(transaction, str) or not HASH.fullmatch(transaction):
-        raise ValueError("no recent transaction found; set rpc.transaction to an existing mined transaction for tracing acceptance")
+        raise ValueError("invalid tracing sample; set rpc.transaction to an existing mined transaction")
     receipt = read("eth_getTransactionReceipt", [transaction])
     if not isinstance(receipt, dict) or str(receipt.get("transactionHash", "")).lower() != transaction.lower():
-        raise ValueError("sample receipt is unavailable")
+        raise ValueError("sample receipt is unavailable; choose a canonical mined rpc.transaction or remove it from the source config for automatic sampling, then prepare --replace")
     sample_block = block(read, receipt.get("blockNumber"))
     if (sample_block["hash"].lower() != str(receipt.get("blockHash", "")).lower()
             or transaction.lower() not in [str(h).lower() for h in sample_block["transactions"]]
@@ -275,13 +337,7 @@ def preflight(config, identity, *, rpc_factory=ReadRpc):
     same_checkpoint(read, historical)
     same_checkpoint(read, sample_block)
     same_checkpoint(trace, sample_block)
-    return {"schema_version": "usdb-public-check:v1", "status": "PREFLIGHT_PASSED",
-            "checkpoint": {"number": quantity(head["number"]), "hash": head["hash"]},
-            "historical_sample": {"number": height, "hash": historical["hash"]}, "transaction": transaction,
-            "reference_check": "passed" if "reference_url" in clients else "not_configured",
-            "historical_state_sample": "passed", "trace_sample": "passed",
-            "archive_replay_qualification": "not_run", "wallet_broadcast_acceptance": "not_run",
-            "public_tls_acceptance": "not_run", "reward_supply_qualification": "not_run"}
+    return report
 
 
 def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch):
@@ -292,10 +348,32 @@ def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch):
     identity_check(public, identity)
     checkpoint = {"number": hex(report["checkpoint"]["number"]), "hash": report["checkpoint"]["hash"]}
     same_checkpoint(public, checkpoint)
-    indexed = api_fetch(origin + "/api/v2/blocks/" + checkpoint["hash"])
-    if indexed.get("hash") != checkpoint["hash"] or indexed.get("height") != report["checkpoint"]["number"]:
-        raise ValueError("explorer has not indexed the observed upstream checkpoint")
+    if report["checkpoint"]["number"] == 0:
+        # Blockscout may omit genesis from its block index. Empty successful API
+        # responses are valid here; stale blocks or mined transactions are not.
+        for resource in ("blocks", "transactions?filter=validated"):
+            page = api_fetch(origin + "/api/v2/" + resource)
+            if not isinstance(page, dict) or not isinstance(page.get("items"), list) or page.get("next_page_params") is not None:
+                raise ValueError("explorer returned an invalid genesis-only list response")
+            if resource == "blocks":
+                if any(not isinstance(item, dict) or item.get("height") != 0 or item.get("hash") != checkpoint["hash"] for item in page["items"]):
+                    raise ValueError("explorer contains blocks beyond the genesis-only upstream")
+            elif page["items"]:
+                raise ValueError("explorer contains mined transactions beyond the genesis-only upstream")
+    else:
+        indexed = api_fetch(origin + "/api/v2/blocks/" + checkpoint["hash"])
+        if indexed.get("hash") != checkpoint["hash"] or indexed.get("height") != report["checkpoint"]["number"]:
+            raise ValueError("explorer has not indexed the observed upstream checkpoint")
     transaction = report["transaction"]
+    if transaction is None:
+        sources = [rpc_factory(config["rpc"][name]) for name in ("read_url", "trace_url", "broadcast_url", "reference_url")
+                   if name in config["rpc"]]
+        for client in [public, *sources]:
+            same_checkpoint(client, checkpoint)
+        if report["checkpoint"]["number"] == 0:
+            same_genesis_head([public, *sources], checkpoint)
+        report["status"] = "CHECKED_NO_TRANSACTION_SAMPLE"
+        return report
     receipt = public("eth_getTransactionReceipt", [transaction])
     indexed_tx = api_fetch(origin + "/api/v2/transactions/" + transaction)
     if (not isinstance(receipt, dict) or indexed_tx.get("hash") != transaction

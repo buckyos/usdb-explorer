@@ -127,6 +127,9 @@ def configure(args, *, kit=KIT):
         for key in ("read_url", "trace_url", "broadcast_url"):
             rpc[key] = args.rpc_url or "http://127.0.0.1:8545"
     rpc["mode"] = "local-node"
+    if args.auto_samples:
+        rpc.pop("historical_block", None)
+        rpc.pop("transaction", None)
     resources = config.setdefault("resources", {})
     if resources.get("other_services_memory_gib", 0) == 0:
         resources["other_services_memory_gib"] = "auto"
@@ -340,6 +343,7 @@ def parser():
         if name == "configure":
             action.add_argument("--local-node", action="store_true", required=True, help="Use the node's host loopback RPC")
             action.add_argument("--rpc-url", help="Local HTTP RPC override (default http://127.0.0.1:8545)")
+            action.add_argument("--auto-samples", action="store_true", help="Remove pinned history/transaction samples; back up the source config before applying")
             action.add_argument("--explorer-url", help="Advertised origin; select bundled ingress and public binding for a non-loopback host")
             action.add_argument("--http-port", type=int, help="Local bundled HTTP port, independent of the advertised port (default 28080)")
             action.add_argument("--bind-address", help="Override the ingress IPv4 bind address")
@@ -376,6 +380,8 @@ def execute(args, root):
         if config["rpc"].get("mode") == "local-node":
             require_local_docker()
         report = preflight(config, identity)
+        for warning in report.get("warnings", []):
+            print(f"WARNING: {warning}")
         compose(root, ["config", "--quiet"], capture=True, timeout=30)
         if "build" in document["services"]["gateway"]:
             compose(root, ["build", "gateway"])

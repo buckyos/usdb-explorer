@@ -7,11 +7,30 @@ import json
 import threading
 
 
+class RpcFixtureError(ValueError):
+    """Return a real JSON-RPC error envelope from the shared HTTP fixture."""
+    def __init__(self, message, code=-32000):
+        super().__init__(message)
+        self.code = code
+
+
+def rpc_response(fixture, request):
+    response = {"jsonrpc": "2.0", "id": request["id"]}
+    try:
+        response["result"] = fixture(request["method"], request["params"])
+    except RpcFixtureError as error:
+        response["error"] = {"code": error.code, "message": str(error)}
+    except ValueError:
+        response["error"] = {"code": -32000, "message": "fixture failure"}
+    return response
+
+
 class PublicRpcFixture:
     def __init__(self, identity):
         self.identity = identity
         self.height = 300
         self.transaction = "0x" + "bb" * 32
+        self.transaction_block = 10
         self.calls = []
         self.failures = {}
         self.fork = False
@@ -21,7 +40,7 @@ class PublicRpcFixture:
         if self.fork and number:
             digest = "0x" + "ff" * 32
         return {"number": hex(number), "hash": digest, "miner": "0x" + "11" * 20,
-                "transactions": [self.transaction] if number == 10 else []}
+                "transactions": [self.transaction] if number == self.transaction_block else []}
 
     def __call__(self, method, params):
         self.calls.append((method, params))
@@ -33,18 +52,32 @@ class PublicRpcFixture:
         if method == "eth_getBlockByNumber":
             number = self.height if params[0] == "latest" else int(params[0], 16)
             return self.block(number) if number <= self.height else None
+        if method in {"eth_getTransactionReceipt", "debug_traceTransaction"}:
+            if params[0] != self.transaction or self.transaction_block is None or self.transaction_block > self.height:
+                if method == "eth_getTransactionReceipt":
+                    return None
+                raise RpcFixtureError("genesis is not traceable")
+        if method == "debug_traceBlockByNumber":
+            number = int(params[0], 16)
+            if number == 0:
+                raise RpcFixtureError("genesis is not traceable")
+            return [{"result": {"type": "CALL"}} for _ in self.block(number)["transactions"]]
         values = {"eth_chainId": hex(self.identity["chain_id"]), "net_version": str(self.identity["network_id"]),
                   "eth_syncing": False, "eth_getBalance": "0x0", "eth_getCode": "0x", "eth_call": "0x",
-                  "eth_getTransactionReceipt": {"transactionHash": self.transaction, "blockNumber": "0xa",
-                      "blockHash": self.block(10)["hash"], "status": "0x1", "gasUsed": "0x5208", "effectiveGasPrice": "0x2"},
+                  "eth_getTransactionReceipt": {"transactionHash": self.transaction, "blockNumber": hex(self.transaction_block or 0),
+                      "blockHash": self.block(self.transaction_block or 0)["hash"], "status": "0x1", "gasUsed": "0x5208", "effectiveGasPrice": "0x2"},
                   "debug_traceTransaction": {"type": "CALL"}, "debug_traceBlockByNumber": [{"result": {"type": "CALL"}}]}
         if method not in values:
             raise AssertionError(f"Unexpected or privileged RPC method: {method}")
         return deepcopy(values[method])
 
     def api(self, url):
+        if url.endswith("/blocks"):
+            return {"items": [] if self.height == 0 else [{"hash": self.block(self.height)["hash"], "height": self.height}], "next_page_params": None}
+        if url.endswith("/transactions?filter=validated"):
+            return {"items": [] if self.transaction_block is None or self.transaction_block > self.height else [{"hash": self.transaction}], "next_page_params": None}
         if "/transactions/" in url:
-            return {"hash": self.transaction, "block_number": 10, "gas_used": "21000", "result": "success", "fee": {"value": "42000"}}
+            return {"hash": self.transaction, "block_number": self.transaction_block, "gas_used": "21000", "result": "success", "fee": {"value": "42000"}}
         return {"hash": self.block(self.height)["hash"], "height": self.height}
 
 
@@ -58,11 +91,7 @@ def rpc_server(fixture, *, request_observer=None):
             if request_observer is not None:
                 request_observer(self.path, self.headers)
             request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            response = {"jsonrpc": "2.0", "id": request["id"]}
-            try:
-                response["result"] = fixture(request["method"], request["params"])
-            except ValueError:
-                response["error"] = {"code": -32000, "message": "fixture failure"}
+            response = rpc_response(fixture, request)
             body = json.dumps(response).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))

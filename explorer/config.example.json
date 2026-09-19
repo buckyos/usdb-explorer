@@ -4,9 +4,7 @@
   "network": "usdb-testnet-v0",
   "rpc": {
     "mode": "local-node",
-    "read_url": "http://127.0.0.1:8545",
-    "historical_block": 35,
-    "transaction": "0xccb808b8fe97c692ed60f41dd4d69b960d803fccd02ad1f03ddde56661a83af0"
+    "read_url": "http://127.0.0.1:8545"
   },
   "ingress": {
     "mode": "bundled",

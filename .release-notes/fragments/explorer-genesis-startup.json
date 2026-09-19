@@ -1,0 +1,25 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-genesis-startup",
+  "type": "fixed",
+  "scopes": ["deployment", "explorer"],
+  "summary": "Allow full Explorer startup before the first node has mined blocks or transactions",
+  "details": [
+    "Automatic sampling may start full Explorer without a mined transaction, including a genesis-only first node. Network identity, state queries and both private tracing methods remain required; configuration does not disable indexing or tracing features.",
+    "Report pending receipt and callTracer execution checks separately from passed samples. Genesis and missing-transaction responses only establish method availability, not complete archive coverage or successful transaction tracing. Missing methods, state failures, authentication and transport failures still block startup.",
+    "Check genesis-only deployments through canonical public RPC and empty explorer lists, allowing an indexed genesis block while rejecting stale chain data and malformed or unavailable APIs. Subsequent checks validate real transactions when automatic sampling finds them.",
+    "Remove hardcoded history and transaction samples from new installation defaults. Existing settings remain intact; configure --local-node --auto-samples backs up the source config and explicitly removes its two sample pins without changing prepared deployments, credentials or volumes.",
+    "Keep automatic transaction discovery bounded to 32 blocks. A quiet chain without a recent sample reports pending validation; operators can select an older canonical transaction. Invalid explicitly configured samples remain errors with recovery guidance."
+  ],
+  "operator_actions": [
+    "Install the updated Explorer CLI. For local deployments retaining old template samples, run configure --local-node --auto-samples, down, prepare --replace, preflight and up; external deployments can remove rpc.historical_block and rpc.transaction from their source config before re-preparing.",
+    "Keep the upstream archive and private tracing configuration enabled before mining. Run check after mined transactions become available to complete the deferred receipt and tracing samples."
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": true,
+    "restart_required": false
+  },
+  "references": []
+}

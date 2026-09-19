@@ -18,7 +18,7 @@ sys.path.insert(0, str(KIT))
 import public_checks as CHECK
 import public_config as CONFIG
 import usdb_public as PUBLIC
-from common.public_services import PublicRpcFixture
+from common.public_services import PublicRpcFixture, RpcFixtureError, rpc_response
 
 SECRET = "do-not-print-upstream-secret"
 
@@ -196,6 +196,138 @@ class PreflightDiagnosticsTests(unittest.TestCase):
                     self.assertIn(route, output.getvalue())
                     self.assertNotIn(SECRET, output.getvalue())
                     self.assertEqual((state / "deployment.json").read_bytes(), before)
+
+
+class BootstrapPreflightTests(unittest.TestCase):
+    def setUp(self):
+        self.identity = CONFIG.read_json(KIT / "networks/usdb-testnet-v0.json")
+        self.config = CONFIG.read_json(KIT / "config.example.json")
+        self.config["rpc"] = {"mode": "external", **{name: f"http://{name.replace('_', '-')}.internal"
+                              for name in ("read_url", "trace_url", "broadcast_url")}}
+        self.rpc = PublicRpcFixture(self.identity)
+        self.rpc.height = 0
+
+    def client(self, _url):
+        return CHECK.ReadRpc("http://fixture.internal", fetcher=lambda _, request: rpc_response(self.rpc, request))
+
+    def test_genesis_and_empty_blocks_keep_full_configuration_with_pending_samples(self):
+        for height in (0, 4, 300):
+            self.rpc.height = height
+            with self.subTest(height=height):
+                report = CHECK.preflight(self.config, self.identity, rpc_factory=self.client)
+                self.assertEqual(report["status"], "PREFLIGHT_READY_NO_TRANSACTION_SAMPLE")
+                self.assertEqual(report["trace_sample"], "pending_no_transaction_sample")
+                self.assertEqual(report["trace_methods"], "available")
+                self.assertIsNone(report["transaction"])
+                self.assertEqual(report["historical_state_sample"], "genesis_only" if height == 0 else "passed")
+                self.assertEqual(report["chain_state"], "genesis_only" if height == 0 else "no_recent_transaction_sample")
+                self.assertEqual(report["archive_replay_qualification"], "not_run")
+                self.assertTrue(report["warnings"])
+                self.assertEqual({method for method, _ in self.rpc.calls} - CHECK.READ_METHODS, set())
+
+    def test_first_mined_transaction_automatically_enables_real_acceptance(self):
+        self.assertEqual(CHECK.preflight(self.config, self.identity, rpc_factory=self.client)["trace_sample"], "pending_no_transaction_sample")
+        self.rpc.height = self.rpc.transaction_block = 1
+        report = CHECK.check_explorer(self.config, self.identity, rpc_factory=self.client, api_fetch=self.rpc.api)
+        self.assertEqual(report["status"], "CHECKED")
+        self.assertEqual(report["trace_sample"], "passed")
+        self.assertEqual(report["transaction"], self.rpc.transaction)
+        self.assertNotIn("warnings", report)
+        self.rpc.failures["debug_traceTransaction"] = RpcFixtureError("missing trie node")
+        with self.assertRaisesRegex(CHECK.RpcFailure, "HISTORICAL_STATE_UNAVAILABLE"):
+            CHECK.preflight(self.config, self.identity, rpc_factory=self.client)
+
+    def test_unavailable_methods_and_other_errors_never_become_pending_samples(self):
+        failures = [(method, RpcFixtureError("method unavailable", -32601), "TRACING_UNAVAILABLE")
+                    for method in sorted(CHECK.TRACE_METHODS)]
+        failures += [("debug_traceTransaction", RpcFixtureError("execution timeout"), "TRACING_TIMEOUT"),
+                     ("debug_traceBlockByNumber", RpcFixtureError("missing trie node"), "HISTORICAL_STATE_UNAVAILABLE"),
+                     ("debug_traceTransaction", RpcFixtureError("transaction not found", -32603), "RPC_ERROR"),
+                     ("debug_traceTransaction", None, "RPC_INVALID_RESPONSE"),
+                     ("debug_traceBlockByNumber", [], "RPC_INVALID_RESPONSE"),
+                     ("eth_getBalance", RpcFixtureError("missing trie node"), "HISTORICAL_STATE_UNAVAILABLE")]
+        for method, failure, category in failures:
+            self.rpc.failures = {method: failure}
+            with self.subTest(method=method, category=category), self.assertRaisesRegex(CHECK.RpcFailure, category):
+                CHECK.preflight(self.config, self.identity, rpc_factory=self.client)
+        self.rpc.height = 1
+        self.rpc.failures = {"debug_traceBlockByNumber": RpcFixtureError("genesis is not traceable")}
+        with self.assertRaisesRegex(CHECK.RpcFailure, "RPC_ERROR"):
+            CHECK.preflight(self.config, self.identity, rpc_factory=self.client)
+
+    def test_explicit_samples_are_not_silently_ignored(self):
+        self.config["rpc"]["historical_block"] = 35
+        with self.assertRaisesRegex(CHECK.RpcFailure, "SAMPLE_ABOVE_HEAD.*35.*head 0.*--auto-samples"):
+            CHECK.preflight(self.config, self.identity, rpc_factory=self.client)
+        self.config["rpc"].pop("historical_block")
+        self.config["rpc"]["transaction"] = self.rpc.transaction
+        with self.assertRaisesRegex(ValueError, "sample receipt is unavailable"):
+            CHECK.preflight(self.config, self.identity, rpc_factory=self.client)
+
+    def test_genesis_probe_detects_disagreeing_or_advancing_heads(self):
+        alternate = PublicRpcFixture(self.identity)
+        alternate.height = 1
+        self.config["rpc"]["reference_url"] = "http://reference.internal"
+        def factory(url):
+            fixture = alternate if url == self.config["rpc"]["read_url"] else self.rpc
+            return CHECK.ReadRpc(url, fetcher=lambda _, request: rpc_response(fixture, request))
+        with self.assertRaisesRegex(ValueError, "advanced or endpoints disagree"):
+            CHECK.preflight(self.config, self.identity, rpc_factory=factory)
+        self.config["rpc"].pop("reference_url")
+        def changing_fetch(_, request):
+            response = rpc_response(self.rpc, request)
+            if request["method"] == "debug_traceBlockByNumber":
+                self.rpc.height = 1
+            return response
+        with self.assertRaisesRegex(ValueError, "advanced or endpoints disagree"):
+            CHECK.preflight(self.config, self.identity, rpc_factory=lambda url: CHECK.ReadRpc(url, fetcher=changing_fetch))
+
+    def test_empty_explorer_check_accepts_optional_genesis_but_rejects_stale_or_broken_api(self):
+        report = CHECK.check_explorer(self.config, self.identity, rpc_factory=self.client, api_fetch=self.rpc.api)
+        self.assertEqual(report["status"], "CHECKED_NO_TRANSACTION_SAMPLE")
+        def genesis_api(url):
+            if url.endswith("/blocks"):
+                return {"items": [{"height": 0, "hash": self.identity["genesis_block_hash"]}]}
+            return self.rpc.api(url)
+        self.assertEqual(CHECK.check_explorer(self.config, self.identity, rpc_factory=self.client, api_fetch=genesis_api)["status"],
+                         "CHECKED_NO_TRANSACTION_SAMPLE")
+        for resource, value in (("/blocks", {"error": "unavailable"}),
+                                ("/blocks", {"items": [{"height": 1, "hash": "0x" + "ab" * 32}]}),
+                                ("/transactions?filter=validated", {"items": [{"hash": self.rpc.transaction}]})):
+            def bad_api(url):
+                return value if url.endswith(resource) else self.rpc.api(url)
+            with self.subTest(resource=resource, value=value), self.assertRaises(ValueError):
+                CHECK.check_explorer(self.config, self.identity, rpc_factory=self.client, api_fetch=bad_api)
+        with self.assertRaisesRegex(ValueError, "API unavailable"):
+            CHECK.check_explorer(self.config, self.identity, rpc_factory=self.client, api_fetch=mock.Mock(side_effect=ValueError("API unavailable")))
+
+    def test_cli_starts_full_services_at_genesis_without_modifying_prepared_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, state = root / "config.json", root / "state"
+            source.write_text(json.dumps(self.config))
+            with redirect_stdout(io.StringIO()):
+                PUBLIC.prepare(source, state)
+            before = {path.name: path.read_bytes() for path in state.iterdir() if path.is_file()}
+            document = CONFIG.read_json(state / "compose.json")
+            self.assertTrue(document["services"]["backend"]["environment"]["ETHEREUM_JSONRPC_TRACE_URL"])
+            def open_response(request, **_kwargs):
+                return io.BytesIO(json.dumps(rpc_response(self.rpc, json.loads(request.data))).encode())
+            for command in ("preflight", "up"):
+                output = io.StringIO()
+                with mock.patch.object(CHECK.urllib.request, "build_opener") as opener, \
+                        mock.patch.object(PUBLIC, "docker", return_value=SimpleNamespace(stdout="1.55")), \
+                        mock.patch.object(PUBLIC, "require_resources"), mock.patch.object(PUBLIC, "require_database_identity"), \
+                        mock.patch.object(PUBLIC, "compose") as compose, redirect_stdout(output):
+                    opener.return_value.open.side_effect = open_response
+                    self.assertEqual(PUBLIC.main([command, "--state-dir", str(state)]), 0)
+                    if command == "up":
+                        compose.assert_any_call(state, ["up", "-d"])
+                        self.assertIn("validation are pending", output.getvalue())
+                    else:
+                        compose.assert_not_called()
+                        self.assertEqual(json.loads(output.getvalue())["status"], "PREFLIGHT_READY_NO_TRANSACTION_SAMPLE")
+                self.assertEqual({path.name: path.read_bytes() for path in state.iterdir() if path.is_file()}, before)
 
 
 if __name__ == "__main__":
