@@ -164,6 +164,29 @@ usdb-explorer logs --follow
 Compose project 内只有浏览器服务，没有 archive 或 miner；启动成功不等于索引已经追平。
 历史查询、tracing 或网络身份不满足要求时会报错，不会自动关闭这些功能掩盖缺口。
 
+### preflight 能力诊断
+
+`preflight`、`up` 的上游检查以及 `check` 共用完整模式要求。RPC 错误会显示稳定分类、
+配置项名称（如 `read_url`、`trace_url`）、失败方法；历史查询还会显示采样区块高度。
+例如 `[HISTORICAL_STATE_UNAVAILABLE] read_url: RPC eth_getBalance at block 35 (0x23)`。
+工具报告首次失败，处理后重新执行检查，不会因某项失败自动降级到基础模式。
+
+| 错误分类 | 含义与处理方向 |
+| --- | --- |
+| `HISTORICAL_STATE_UNAVAILABLE` | 采样所需状态缺失，可能已裁剪或不完整；需要覆盖该区块的 archive。启用 archive 不会补回旧数据，应保留原目录，通过独立目录从 genesis 执行或恢复完整 archive 备份 |
+| `TRACING_UNAVAILABLE` | tracing 方法未开放或被代理拦截；在兼容版本的 USDB 上游主机执行 `down` → `set-query-mode --tracing on` → `up`，检查私有代理是否允许两个 `debug_trace*` 方法，RPC 继续保持私有 |
+| `RPC_DNS` / `RPC_CONNECTION_REFUSED` / `RPC_CONNECTION` | 检查地址解析、节点是否运行、RPC 监听端口和路由；同机部署使用 `configure --local-node`，参数变更仍按 prepare 替换流程应用 |
+| `RPC_AUTH` / `RPC_TLS` | 检查受控代理的认证、访问规则或 TLS 证书与 CA；不通过关闭证书校验或开放公网 debug 解决 |
+| `RPC_TIMEOUT` / `TRACING_TIMEOUT` / `RPC_RATE_LIMIT` | 检查节点/indexer 就绪状态、资源负载、代理超时及限流后重试；这些错误不能证明缺少 archive 或 tracing |
+| `TRACER_UNSUPPORTED` | 方法存在但缺少 `callTracer`，核对 chain 镜像版本和私有代理兼容性 |
+| `RPC_HTTP` / `RPC_METHOD_UNAVAILABLE` / `RPC_INVALID_RESPONSE` | 核对端点路径、代理健康状态、方法白名单和响应格式，不能把无效响应当作能力不足 |
+| `RPC_EXECUTION_ERROR` / `RPC_ERROR` | 请求执行回退或其他未分类 RPC 错误；在上游本机查看日志，不据此认定 archive 或 tracing 缺失 |
+
+报错不输出 RPC URL、上游原始错误消息或 `error.data`，避免泄露私有路径或凭据。
+仅在明确的错误码/已知错误特征下分类；区块 tracing 中的单笔追踪错误同样会阻断启动，
+有效调用轨迹内的合约 revert 则不等于 tracing 服务故障。
+以上节点配置操作仍由上游运维执行，Explorer 不修改节点；采样通过仍不代表完整历史验收。
+
 ## 3. 接入现有 Nginx：external 模式
 
 将 `ingress.mode` 设为 `external` 时，不创建入口 Nginx 容器。frontend 绑定 `127.0.0.1:28080`，网关绑定 `127.0.0.1:28081`。

@@ -1,0 +1,23 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-preflight-capability-diagnostics",
+  "type": "fixed",
+  "scopes": ["deployment", "explorer"],
+  "summary": "Explain historical state, private tracing and connection failures during Explorer preflight",
+  "details": [
+    "Report a stable failure category, configured RPC route name, method and available sample block height, with specific operator guidance for unavailable historical state or tracing methods.",
+    "Distinguish authentication, DNS, refused connections, TLS, rate limits, timeouts and malformed responses from missing capabilities. Unknown RPC errors retain a generic diagnosis rather than suggesting archive or tracing is disabled.",
+    "Diagnose per-transaction failures inside successful block-tracing RPC responses while preserving valid traces of reverted EVM execution.",
+    "Keep full-mode startup requirements and prepared deployment data unchanged. Error output does not echo operator URLs or raw upstream error messages/data, and passing samples still does not certify complete archive coverage."
+  ],
+  "operator_actions": [
+    "Install the updated Explorer CLI and rerun preflight to obtain the refined diagnostics; follow the indicated upstream repair steps before retrying startup."
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": false
+  },
+  "references": []
+}
