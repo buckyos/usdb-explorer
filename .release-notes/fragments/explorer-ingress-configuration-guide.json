@@ -1,0 +1,20 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-ingress-configuration-guide",
+  "type": "added",
+  "scopes": ["documentation"],
+  "summary": "Document independent RPC and ingress modes, HTTPS setup and public-origin diagnostics",
+  "details": [
+    "Explain local-node/external RPC separately from bundled/external ingress, and distinguish the advertised frontend and wallet origin from host listener ports. Document that configure --explorer-url selects bundled ingress and that the current CLI has no certificate or HTTPS-port options.",
+    "Provide source-configuration examples for bundled HTTPS and existing host Nginx, including certificate renewal, port forwarding and the required prepare lifecycle. Correct the external-ingress reference to state that loopback bindings are required even for public exposure.",
+    "Separate successful local and external browser checks from failures when the server revisits its public origin. Describe connection timing, intermittent NAT/firewall paths, split-DNS port constraints and the v0.2.4 limitation; keep check --url explicitly scoped to its override and never repair local reachability by replacing the visitor origin with loopback."
+  ],
+  "operator_actions": [],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": false
+  },
+  "references": []
+}

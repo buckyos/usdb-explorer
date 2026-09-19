@@ -1,6 +1,8 @@
 # USDB 浏览器与公共 RPC 独立部署
 
 用户操作入口见 [Explorer handbook](../docs/handbook/README.md)；本文保留参数、拓扑和部署机制参考。
+`local-node` 与 `bundled` 的独立含义、公布地址和监听端口、域名/HTTPS 操作步骤见
+[部署模式与访问地址](../docs/handbook/networking.md)。
 
 此目录提供独立的 `usdb-explorer` 工具和发布通道，并保留 `usdb-public` 兼容命令。
 新安装默认连接同机 USDB 的 `http://127.0.0.1:8545`，与 `usdb-node` 默认 Docker 部署配合使用。
@@ -253,8 +255,9 @@ sudo systemctl reload nginx
 配置片段转发 `/rpc`、`/api/`、`/network.json`，其余为 frontend；所有 API 均经过网关，
 不允许把 `/api/` 直接代理到 Blockscout backend。`/socket` 暂未开放，不能据此宣称支持 WebSocket。
 
-若现有 Nginx 运行在另一容器内，其 `127.0.0.1` 同样不是宿主机：应选定受控的私网绑定地址，
-将配置片段的上游地址用于那个可达接口，并配置宿主机访问控制。当前 private 预览仅允许 loopback。
+若现有 Nginx 运行在独立桥接容器内，其 `127.0.0.1` 同样不是宿主机。当前 external ingress
+强制 loopback 绑定（包括 public），不能通过改成非 loopback 地址直接套用此拓扑；应另行设计
+受控连接，或使用宿主机 Nginx。
 服务不会自动修改服务器上其他 www 的配置，也不会通过 `reload-proxy` 重启外部 Nginx。
 
 ## 4. 使用内置 Nginx：bundled 模式

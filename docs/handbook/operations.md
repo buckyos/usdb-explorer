@@ -56,6 +56,13 @@ usdb-explorer check --url http://127.0.0.1:28080
 输出会明确提示公布地址没有被检查，JSON 的 `ingress_check` 为 `override_origin`。
 正常检查该字段为 `configured_origin`，也只证明执行命令的这台主机可以访问；公网访问需从外部网络复核。
 HTTPS 仍要求正确证书和主机名；此功能不跳过证书校验，也不自动跟随入口重定向。
+v0.2.4 不支持 `--url`，可使用[本机 curl 检查](troubleshooting.md#preflight-成功但-check-超时)。
+若外网页面已正常而本机回访公网地址超时，保留实际公网 URL，按
+[公网回访排错](troubleshooting.md#外网正常但服务器上的-check-超时)检查 NAT/防火墙，
+不要用本机成功覆盖公布地址检查的失败结论。
+
+地址、模式和 HTTPS 的修改见[部署模式与访问地址](networking.md)；证书原路径续期可以
+`reload-proxy`，但域名、监听端口或模式变更需要重新 prepare。
 
 ## 日常观察
 

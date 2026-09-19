@@ -8,6 +8,7 @@
 | --- | --- |
 | preflight 只有 JSON，看不出是否成功 | [预检结果](#预检结果与等待交易) |
 | preflight 成功，check 超时 | [检查访问链路](#preflight-成功但-check-超时) |
+| 外网页面正常，但服务器 check 仍超时 | [公网地址回访](#外网正常但服务器上的-check-超时) |
 | HTML 打开，但数据请求失败 | [页面和 API 地址](#页面打开但数据不显示) |
 | 高度 35 超过当前链头、旧交易找不到 | [旧采样配置](#旧采样配置) |
 | 缺少 archive、tracing 或上游不可达 | [RPC 分类](#rpc-分类与恢复) |
@@ -78,6 +79,45 @@ usdb-explorer check
 不要通过延长超时、切换 mining 或重建数据库修复错误 URL。
 
 **恢复标志**：正常的 `check` 通过，访问者机器能加载页面及 API；空链返回 genesis/空列表即可。
+
+## 外网正常但服务器上的 check 超时
+
+`check` 从服务器访问公布 URL；它与外网 PC 的路径不同。即使 `up` 成功、上游 preflight 通过，
+服务器仍可能无法稳定经路由器的公网地址回访自己。错误里的 `eth_getBlockByNumber at block 0`
+是网络身份检查所用的 genesis 查询，不表示当前链停在高度 0，也不表示需要重新启用 mining。
+v0.2.4 的这个报错尚未标明具体 RPC 路由，需要先用上文命令分段定位。
+
+先确认源配置、已 prepare 的入口与实际 URL 一致，并检查本机 `/rpc` 和 API。若本机正常，
+从服务器和真正的外网机器分别请求公布入口；必要时重复少量请求，记录连接阶段的结果：
+
+```bash
+read -r -p 'Actual public Explorer URL (including port): ' explorer_url
+curl --noproxy '*' --connect-timeout 5 --max-time 15 -fsS \
+  -o /dev/null -w 'HTTP=%{http_code} connect=%{time_connect}s first_byte=%{time_starttransfer}s total=%{time_total}s\n' \
+  -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["0x0",false]}' \
+  "${explorer_url%/}/rpc"
+```
+
+该探测用于允许直接访问入口的网络；`--noproxy '*'` 排除本机 HTTP 代理变量的影响。
+curl 退出码 28、HTTP 000 且尚未建立连接，说明超时发生在连接阶段，此时不能归因于 archive、
+tracing 或索引速度。单次成功也不能排除间歇性故障。若连接已建立、等待响应超时，则继续检查
+入口及上游日志，不能一概归因于 NAT。
+
+| 证据 | 处理 |
+| --- | --- |
+| 本机/LAN 稳定成功，服务器回访公网失败，外网成功 | 检查路由器 NAT loopback/hairpin 和相关防火墙/转发规则；这是该访问路径的故障，不据此重建 Explorer |
+| 本机成功，内外网访问公网都失败 | 检查实际端口映射目标、入口防火墙和外部链路；不能只解释为 NAT 回环 |
+| HTTP 页面成功，但 `/rpc` 或 `/api/` 返回 HTTP 错误 | 检查完整路由、网关和 API 响应，不把页面 HTML 成功当作全部接口可用 |
+
+处理方式有两类：修复路由器上的回环访问；或使用真实域名，通过分离 DNS 提供内网入口。
+后一种方式需要内网也能使用 URL 中相同的端口及证书，DNS 不会把公网 443 自动变成内网 28443。
+当前直接使用 IP 时，修改 hosts/DNS 无效。详细拓扑见[公网地址与本机检查](networking.md#公网地址与本机检查)。
+
+保持公布 URL 为实际访问者使用的地址。v0.2.4 暂用本机 curl 加外网 PC 验证分别记录结果；
+安装包含后续改进的版本后，可以显式执行 `check --url http://127.0.0.1:28080` 检查 HTTP bundled
+本机入口。此命令只读，不修改前端配置，也不等于公布入口检查通过；工具不会自动回退后报告成功。
+HTTPS 模式改用正确域名和证书的入口，不能以 loopback HTTP 跳转或跳过 TLS 校验代替验证。
 
 ## 页面打开但数据不显示
 

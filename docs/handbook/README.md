@@ -7,6 +7,7 @@
 | --- | --- |
 | 查区块、交易、地址，理解空链和数据延迟 | [使用浏览器](using-explorer.md) |
 | 安装 Explorer、连接同机节点、配置局域网或公网入口 | [安装与接入](installation.md) |
+| 理解 local-node/bundled、外部 Nginx、端口映射、域名和 HTTPS | [部署模式与访问地址](networking.md) |
 | 判断预检结果、检查服务、升级和备份 | [日常运维](operations.md) |
 | 预检失败、check 超时、页面空白或数据不更新 | [故障排查](troubleshooting.md) |
 
