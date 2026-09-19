@@ -51,9 +51,17 @@ func invalidResponse() error           { return &publicFailure{502, "INVALID_UPS
 
 // rpcValue never returns upstream messages, error.data or endpoint addresses.
 func (g *gateway) rpcValue(ctx context.Context, method string, params any, target any) error {
+	return g.readRPCValue(ctx, method, params, target, false)
+}
+
+func (g *gateway) readRPCValue(ctx context.Context, method string, params any, target any, allowNull bool) error {
 	payload, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 	data, err := g.forward(ctx, payload)
 	if err != nil {
+		var networkError net.Error
+		if method == "eth_getUSDBBlockEconomics" && (errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &networkError) && networkError.Timeout())) {
+			return &publicFailure{504, "ECONOMICS_TIMEOUT"}
+		}
 		return unavailable()
 	}
 	var envelope struct {
@@ -69,6 +77,22 @@ func (g *gateway) rpcValue(ctx context.Context, method string, params any, targe
 	}
 	if envelope.Error != nil {
 		switch envelope.Error.Code {
+		case -32060:
+			return &publicFailure{404, "BLOCK_NOT_FOUND"}
+		case -32061:
+			return &publicFailure{409, "BLOCK_NOT_CANONICAL"}
+		case -32062:
+			return &publicFailure{503, "ECONOMICS_HISTORY_UNAVAILABLE"}
+		case -32063:
+			return &publicFailure{503, "ECONOMICS_POLICY_UNSUPPORTED"}
+		case -32064:
+			return &publicFailure{503, "ECONOMICS_VERIFICATION_FAILED"}
+		case -32065:
+			return &publicFailure{504, "ECONOMICS_TIMEOUT"}
+		case -32066:
+			return &publicFailure{503, "ECONOMICS_REPLAY_LIMIT"}
+		case -32067:
+			return &publicFailure{503, "BUSY"}
 		case -32011, -32018:
 			return &publicFailure{404, "PASS_NOT_FOUND"}
 		case -32042, -32043, -32045, -32046, -32056:
@@ -83,7 +107,7 @@ func (g *gateway) rpcValue(ctx context.Context, method string, params any, targe
 			return unavailable()
 		}
 	}
-	if len(envelope.Result) == 0 || bytes.Equal(envelope.Result, []byte("null")) || json.Unmarshal(envelope.Result, target) != nil {
+	if len(envelope.Result) == 0 || (!allowNull && bytes.Equal(envelope.Result, []byte("null"))) || json.Unmarshal(envelope.Result, target) != nil {
 		return invalidResponse()
 	}
 	return nil
@@ -289,11 +313,12 @@ func (g *gateway) usdb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resource := strings.TrimPrefix(r.URL.Path, "/api/usdb/v1/")
-	if resource != "overview" && resource != "passes" && !(strings.HasPrefix(resource, "passes/") && validPassID(strings.TrimPrefix(resource, "passes/"))) {
+	blockRef, economics := economicsResource(resource)
+	if !economics && resource != "overview" && resource != "passes" && !(strings.HasPrefix(resource, "passes/") && validPassID(strings.TrimPrefix(resource, "passes/"))) {
 		publicError(w, &publicFailure{404, "NOT_FOUND"})
 		return
 	}
-	if (resource == "overview" && len(q) != 0) || (resource != "passes" && q.Get("cursor") != "") {
+	if ((resource == "overview" || economics) && len(q) != 0) || (resource != "passes" && q.Get("cursor") != "") {
 		publicError(w, &publicFailure{400, "INVALID_QUERY"})
 		return
 	}
@@ -313,6 +338,15 @@ func (g *gateway) usdb(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	if !g.catalog.valid(g) || !g.identity(ctx, false) {
 		publicError(w, &publicFailure{503, "CHAIN_IDENTITY_UNAVAILABLE"})
+		return
+	}
+	if economics {
+		value, err := g.blockEconomics(ctx, blockRef)
+		if err != nil {
+			publicError(w, err)
+			return
+		}
+		publicJSON(w, 200, map[string]any{"schema_version": publicSchema, "economics": value})
 		return
 	}
 	if resource == "overview" {

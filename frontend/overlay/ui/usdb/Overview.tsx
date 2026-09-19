@@ -85,6 +85,7 @@ export default function Overview() {
       <p className={ styles.notice }>These heights describe this explorer and its data sources. They do not certify network-wide synchronization.
         Miner Passes use Bitcoin { data.network.btc_network === 'btc-mainnet' ? 'mainnet' : 'testnet' }; USDB test coins cannot pay Bitcoin inscription fees.</p>
       <a className={ styles.cta } href="/usdb/passes">Explore Miner Passes →</a>
+      <p><a className={ styles.cta } href={ '/usdb/economics?block=' + data.chain.hash }>Verify latest block economics →</a></p>
     </> }
   </section>;
 }

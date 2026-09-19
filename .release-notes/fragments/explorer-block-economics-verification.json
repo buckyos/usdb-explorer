@@ -1,0 +1,19 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-block-economics-verification",
+  "type": "added",
+  "scopes": ["explorer", "gateway", "documentation", "testing"],
+  "summary": "Show hash-bound USDB block economics after node replay verification",
+  "details": [
+    "Add Block economics to USDB navigation and link from block details and network overview; show the historical Miner Pass, emission, issued counter and per-transaction miner/Dividend fees with exact decimal precision.",
+    "Only expose verified v1 reports through a bounded GET endpoint, validate block identity and accounting totals, and recheck canonical hash before returning results. Keep the expensive node RPC outside the public JSON-RPC allowlist.",
+    "Distinguish genesis, empty blocks, old nodes, missing archive state, unsupported policies, verification failure, reorgs and replay limits without returning unverified amounts or private upstream diagnostics.",
+    "Update the preview notice without opening unqualified Blockscout reward/burn/supply fields. Per-block replay does not qualify circulating supply, all history or realtime push."
+  ],
+  "operator_actions": [
+    "Upgrade the private read node to a release providing eth_getUSDBBlockEconomics and retain parent archive state and historical Miner Pass data. Old nodes keep ordinary Explorer functions but cannot serve the new report.",
+    "After installing the Explorer release, run down, prepare --replace, preflight and up, then verify representative blocks in Block economics. Preserve existing credentials and database volumes."
+  ],
+  "compatibility": {"network_reset": false, "data_rebuild": false, "config_change": false, "restart_required": true},
+  "references": []
+}

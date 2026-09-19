@@ -1,4 +1,5 @@
-.root { max-width: 1320px; color: var(--chakra-colors-fg); font-size: 14px; line-height: 1.6; }
+/* Keep wide tables inside their scroller instead of expanding the upstream fit-content shell. */
+.root { contain: inline-size; width: 100%; min-width: 0; max-width: 1320px; color: var(--chakra-colors-fg); font-size: 14px; line-height: 1.6; }
 .header { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 28px; }
 .eyebrow { color: #257a86; font-size: 12px; font-weight: 700; letter-spacing: .12em; margin-bottom: 8px; }
 .root h1 { font-size: 30px; font-weight: 700; line-height: 1.25; margin-bottom: 10px; }
@@ -20,6 +21,8 @@
 .root dl { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 13px 20px; }
 .root dt { color: var(--chakra-colors-fg-muted, #667085); }
 .root dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.root dd a { white-space: normal; overflow-wrap: anywhere; }
+.economicCards strong { font-size: 18px; font-variant-numeric: tabular-nums; }
 .root a { color: var(--chakra-colors-link-primary, #217bb5); text-decoration: underline; text-underline-offset: 3px; }
 .notice, .error { padding: 14px 18px; border-radius: 8px; margin: 18px 0; }
 .notice { background: var(--chakra-colors-bg-muted, #f1f5f8); }

@@ -301,7 +301,7 @@ def compose_document(config, identity, lock, root):
                 "NEXT_PUBLIC_API_BASE_PATH": "/", "NEXT_PUBLIC_HOMEPAGE_CHARTS": "[]", "NEXT_PUBLIC_HOMEPAGE_STATS": "[]",
                 "NEXT_PUBLIC_VIEWS_BLOCK_HIDDEN_FIELDS": '["burnt_fees","total_reward"]',
                 "NEXT_PUBLIC_VIEWS_TX_HIDDEN_FIELDS": '["burnt_fees","gas_fees"]',
-                "NEXT_PUBLIC_MAINTENANCE_ALERT_MESSAGE": "USDB 预览：奖励、供应量及手续费分账尚未验收；实时推送暂未开放。",
+                "NEXT_PUBLIC_MAINTENANCE_ALERT_MESSAGE": "USDB 预览：区块奖励与分账请在 USDB → Block economics 中逐块核验；全网供应量统计尚未验收，实时推送暂未开放。",
                 "NEXT_PUBLIC_NETWORK_VERIFICATION_TYPE": "mining"}),
         "gateway": service(images.get("gateway", config["deployment_id"] + "-gateway:local"), "256m", .25, networks=["app"],
             environment={"RPC_UPSTREAM": rpc["read_url"], "BROADCAST_UPSTREAM": rpc["broadcast_url"],

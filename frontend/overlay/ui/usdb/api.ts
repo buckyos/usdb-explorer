@@ -61,6 +61,15 @@ export type OverviewData = {
 };
 
 const messages: Record<string, string> = {
+  BLOCK_NOT_FOUND: 'This USDB block was not found.',
+  BLOCK_NOT_CANONICAL: 'This block is no longer canonical. Search its height again to load the current chain.',
+  ECONOMICS_NODE_UPGRADE_REQUIRED: 'This node does not yet support block economics. The operator needs to upgrade USDB-chain.',
+  ECONOMICS_HISTORY_UNAVAILABLE: 'The parent block state is unavailable. The operator needs retained archive history; enabling archive now cannot restore pruned state.',
+  ECONOMICS_POLICY_UNSUPPORTED: 'This block uses economic rules that this report version has not qualified.',
+  ECONOMICS_VERIFICATION_FAILED: 'Block economics could not be verified. No amounts are shown. The operator should check historical Miner Pass data and node diagnostics.',
+  ECONOMICS_TIMEOUT: 'Block verification timed out. Please retry later.',
+  ECONOMICS_REPLAY_LIMIT: 'This block exceeds the interactive verification limit. Operator-assisted verification is required.',
+  BUSY: 'The node is busy verifying other blocks. Please retry shortly.',
   PASS_NOT_FOUND: 'This Miner Pass was not found at the selected Bitcoin height.',
   INDEXER_NOT_CONFIGURED: 'Miner Pass queries are not configured on this explorer.',
   INDEXER_NOT_READY: 'The Miner Pass indexer is catching up or recovering. Please try again later.',

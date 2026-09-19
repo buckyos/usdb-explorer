@@ -46,10 +46,11 @@ def prepare(archive, destination):
                  "    const mainNavItems: ReturnType['mainNavItems'] = [",
                  """    const mainNavItems: ReturnType['mainNavItems'] = [
       {
-        text: 'USDB', icon: 'globe-b' as const, isActive: pathname === '/usdb' || pathname === '/usdb/passes',
+        text: 'USDB', icon: 'globe-b' as const, isActive: pathname === '/usdb' || pathname === '/usdb/passes' || pathname === '/usdb/economics',
         subItems: [
           { text: 'Network overview', nextRoute: { pathname: '/usdb' as const }, icon: 'globe-b' as const, isActive: pathname === '/usdb' },
           { text: 'Miner Passes', nextRoute: { pathname: '/usdb/passes' as const }, icon: 'block' as const, isActive: pathname === '/usdb/passes' },
+          { text: 'Block economics', nextRoute: { pathname: '/usdb/economics' as const }, icon: 'block' as const, isActive: pathname === '/usdb/economics' },
         ],
       },""")
     for name, marker, value in (
@@ -59,10 +60,16 @@ def prepare(archive, destination):
         ("lib/metadata/getPageOgType.ts", "const OG_TYPE_DICT: Record<Route['pathname'], OGPageType> = {", "'Regular page'"),
     ):
         passes_value = "'%network_name% Miner Passes'" if "title.ts" in name else value
-        replace_once(destination, name, marker, marker + "\n  '/usdb': " + value + ",\n  '/usdb/passes': " + passes_value + ",")
+        economics_value = "'%network_name% block economics'" if "title.ts" in name else value
+        replace_once(destination, name, marker, marker + "\n  '/usdb': " + value + ",\n  '/usdb/passes': " + passes_value + ",\n  '/usdb/economics': " + economics_value + ",")
     # Next checks types before the routes plugin regenerates its declarations.
     replace_once(destination, "nextjs/nextjs-routes.d.ts", "  export type Route =",
-                 '  export type Route =\n    | StaticRoute<"/usdb">\n    | StaticRoute<"/usdb/passes">')
+                 '  export type Route =\n    | StaticRoute<"/usdb">\n    | StaticRoute<"/usdb/passes">\n    | StaticRoute<"/usdb/economics">')
+    replace_once(destination, "ui/pages/Block.tsx", "          <BlockDetails query={ blockQuery }/>",
+                 """          <BlockDetails query={ blockQuery }/>
+          { blockQuery.data?.hash && !blockQuery.isPlaceholderData && <p style={{ marginTop: 20 }}>
+            <a href={ '/usdb/economics?block=' + blockQuery.data.hash } style={{ color: '#217bb5', textDecoration: 'underline' }}>Verify USDB block economics →</a>
+          </p> }""")
     # Keep the upstream lockfile, but allow patched Node 22 images instead of its exact old patch release.
     replace_once(destination, "package.json", '"node": "22.11.0"', '"node": "22.x"')
     replace_once(destination, "package.json", '"npm": "10.9.0"', '"npm": ">=10"')

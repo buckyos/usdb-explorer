@@ -1,8 +1,9 @@
 # USDB frontend integration
 
 This directory owns the small USDB overlay for the pinned Blockscout frontend.
-It adds the `USDB` navigation group, `/usdb` network overview and `/usdb/passes`.
-Existing Blockscout pages retain their upstream implementation.
+It adds the `USDB` navigation group, `/usdb` network overview, `/usdb/passes`, and
+`/usdb/economics`. The ordinary block detail page links to hash-bound economics.
+Economic amounts come from the bounded gateway API; the frontend does not reproduce consensus formulas.
 
 `upstream.lock.json` pins the source commit and archive SHA-256. `prepare.py`
 verifies the archive before extraction, rejects unsafe paths, applies checked

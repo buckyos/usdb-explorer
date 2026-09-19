@@ -27,6 +27,27 @@ PROFILE = {"pass_id": PASS, "owner_script_hash": HASH, "owner_btc_addr": "bc1qfi
 
 def response(resource, mode):
     base = {"schema_version": SCHEMA, "updated_at": "2026-09-19T00:00:00Z"}
+    if resource.startswith("blocks/"):
+        if mode == "unavailable":
+            return 503, {**base, "error": {"code": "ECONOMICS_NODE_UPGRADE_REQUIRED"}}
+        if mode == "reorg":
+            return 409, {**base, "error": {"code": "BLOCK_NOT_CANONICAL"}}
+        report = {"status": "genesis_not_applicable" if "/0/" in resource else "verified",
+                  "block_hash": "0x" + HASH, "block_number": "0" if "/0/" in resource else "215", "parent_hash": "0x" + "b" * 64,
+                  "state_root": "0x" + HASH, "receipts_root": "0x" + HASH, "miner": PROFILE["usdb_main"], "dividend": "0x" + "22" * 20,
+                  "versions": {"rewardRuleVersion": 1, "feeSplitPolicyVersion": 1},
+                  "selector": {**STATE, "pass_id": PASS, "btc_anchor_age_blocks": 2},
+                  "amounts": {"issued_before_atoms": "9007199254740993000000000000", "issued_after_atoms": "9007199254740993000000000001",
+                              "emission_atoms": "1", "miner_emission_atoms": "1", "fees_atoms": "63000", "miner_fees_atoms": "37800", "dao_fees_atoms": "25200"},
+                  "transactions": [] if mode == "empty" else [{"hash": "0x" + HASH, "status": 0, "gas_used": "21000", "effective_gas_price_atoms": "3",
+                                                              "fee_atoms": "63000", "miner_fee_atoms": "37800", "dao_fee_atoms": "25200", "fee_route": "miner_and_dividend"}]}
+        if report["status"] == "genesis_not_applicable":
+            for key in ("amounts", "selector", "versions"):
+                report.pop(key)
+            report["transactions"] = []
+        if mode == "empty" and "amounts" in report:
+            report["amounts"].update(fees_atoms="0", miner_fees_atoms="0", dao_fees_atoms="0")
+        return 200, {**base, "economics": report}
     if mode == "reorg":
         return 409, {**base, "error": {"code": "STATE_CHANGED"}}
     if mode == "unavailable":
@@ -52,7 +73,10 @@ def response(resource, mode):
 
 @contextmanager
 def frontend(image):
+    # Upstream's Playwright mode lengthens tooltip closeDelay so automated
+    # pointer transitions can reach the interactive sidebar submenu.
     env = {"HOSTNAME": "0.0.0.0", "NEXT_PUBLIC_NETWORK_NAME": "USDB Testnet", "NEXT_PUBLIC_NETWORK_SHORT_NAME": "USDB",
+           "NEXT_PUBLIC_APP_INSTANCE": "pw",
            "NEXT_PUBLIC_NETWORK_ID": "202608250", "NEXT_PUBLIC_IS_TESTNET": "true", "NEXT_PUBLIC_APP_HOST": "localhost",
            "NEXT_PUBLIC_APP_PROTOCOL": "http", "NEXT_PUBLIC_API_HOST": "localhost", "NEXT_PUBLIC_API_PROTOCOL": "http",
            "NEXT_PUBLIC_API_BASE_PATH": "/", "NEXT_PUBLIC_NETWORK_RPC_URL": "http://localhost/rpc",
@@ -136,9 +160,37 @@ def exercise(url, output):
         mode["value"] = "reorg"
         page.get_by_role("button", name="Retry", exact=True).click()
         expect(page.locator('section [role="alert"]')).to_contain_text("historical state changed")
+        mode["value"] = "ready"
+        page.set_viewport_size({"width": 1440, "height": 1100})
+        page.goto(url + "/usdb/economics?block=215", wait_until="domcontentloaded")
+        expect(page.get_by_role("heading", name="Block economics", exact=True)).to_be_visible()
+        expect(page.get_by_text("Verified for this block:", exact=False)).to_be_visible()
+        expect(page.get_by_role("cell", name="Reverted", exact=True)).to_be_visible()
+        expect(page.get_by_text("9,007,199,254.740993000000000001 USDB", exact=True)).to_be_visible()
+        expect(page.get_by_role("link", name=PASS, exact=True)).to_have_attribute("href", "/usdb/passes?id=" + PASS + "&height=963900&state=" + HASH)
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "economics desktop overflow"
+        page.screenshot(path=str(output / "block-economics.png"), full_page=True)
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.screenshot(path=str(output / "block-economics-mobile.png"), full_page=True)
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "economics horizontal overflow"
+        mode["value"] = "empty"
+        page.get_by_role("button", name="Verify block", exact=True).click()
+        expect(page.get_by_text("This block has no transactions.", exact=False)).to_be_visible()
+        mode["value"] = "unavailable"
+        page.get_by_role("button", name="Verify block", exact=True).click()
+        expect(page.locator('section [role="alert"]')).to_contain_text("upgrade USDB-chain")
+        expect(page.get_by_role("heading", name="New emission", exact=True)).to_have_count(0)
+        mode["value"] = "reorg"
+        page.get_by_role("button", name="Retry", exact=True).click()
+        expect(page.locator('section [role="alert"]')).to_contain_text("no longer canonical")
+        mode["value"] = "ready"
+        page.get_by_label("USDB block number or hash").fill("0")
+        page.get_by_role("button", name="Verify block", exact=True).click()
+        expect(page.get_by_text("Genesis has no mined block reward", exact=False)).to_be_visible()
+        expect(page.get_by_role("heading", name="New emission", exact=True)).to_have_count(0)
         assert not errors, errors
         browser.close()
-    print("Frontend browser checks passed: overview, sidebar, detail, precision, pagination, mobile, empty, unavailable, reorg.")
+    print("Frontend browser checks passed: overview, passes, economics, precision, pagination, mobile, genesis, empty, unavailable, reorg.")
 
 
 def main():
