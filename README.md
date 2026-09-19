@@ -9,7 +9,8 @@ USDB 区块浏览器与公共 RPC 接入服务。包含 Blockscout 集成、USDB
 
 ## 使用
 
-完整步骤见 [部署与升级手册](explorer/README.md)。源码入口：
+用户和运维人员从 [Explorer handbook](docs/handbook/README.md) 开始，覆盖安装、局域网/公网接入、
+检查结果、升级备份和排错。完整参数与部署细节见 [部署参考](explorer/README.md)。源码入口：
 
 ```bash
 explorer/usdb-explorer --help
@@ -30,7 +31,7 @@ explorer/usdb-explorer prepare --config /path/to/config.json --state-dir /path/t
 | `.github/workflows/` | 独立 CI、构建草稿、手动 Publish |
 | `scripts/image_security.py` | 固定 digest 的镜像扫描计划、证据校验与可选强制门禁 |
 | `tests/` | 部署、安装、迁移、发布、网络契约和真实 Nginx 测试 |
-| `docs/` | 网络接口、发布与迁移说明、历史验收记录 |
+| `docs/` | 用户与运维 handbook、网络接口、发布与迁移说明、历史验收记录 |
 
 日常构建和测试不需要 USDB/go-ethereum/SourceDAO checkout。网络身份和 RPC 要求通过已提交的
 [契约文件](explorer/networks/usdb-testnet-v0.contract.json)关联固定 USDB commit；刷新流程见

@@ -1,0 +1,25 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-operator-checks-and-handbook",
+  "type": "changed",
+  "scopes": ["deployment", "explorer", "documentation"],
+  "summary": "Show explicit check results and provide an independent Explorer operator handbook",
+  "details": [
+    "Preflight and check default to human-readable passed, passed-with-warnings or failed results, with checkpoint, deferred transaction validation and next steps. Exit code zero permits pending samples and does not certify complete archive or network-wide synchronization.",
+    "Add --json for machine-readable success and failure reports. Successful status values remain unchanged; failed checks return an error category and message with exit code one.",
+    "Identify failures at the configured Explorer RPC or API route separately from upstream preflight. Explain that an incorrect visitor URL, port forwarding or NAT loopback can fail even when the node and local ingress are healthy; lack of mining does not cause a genesis RPC connection timeout.",
+    "Add check --url for explicit, read-only ingress diagnostics without changing prepared settings or upstreams. Reports mark an override origin and human output states that the configured visitor URL was not checked. No automatic fallback or TLS bypass is introduced.",
+    "Add an Explorer-owned user and operator handbook covering installation, bundled versus external Nginx, genesis startup, result interpretation, upgrades, backups and troubleshooting. USDB's handbook links to it for Explorer operations and retains node-side guidance. Replace copyable documentation-IP configuration examples with prompts for actual visitor URLs."
+  ],
+  "operator_actions": [
+    "Update automation that parses preflight/check stdout to pass --json when installing this version; inspect trace_sample as well as the exit code if mined transaction validation is required.",
+    "If ingress.explorer_url still contains a documentation or obsolete address, configure the actual visitor origin, then down, prepare --replace and up. A successful check --url override does not repair or validate the configured origin."
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": true,
+    "restart_required": false
+  },
+  "references": []
+}

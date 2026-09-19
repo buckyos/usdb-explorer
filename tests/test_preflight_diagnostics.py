@@ -326,8 +326,116 @@ class BootstrapPreflightTests(unittest.TestCase):
                         self.assertIn("validation are pending", output.getvalue())
                     else:
                         compose.assert_not_called()
-                        self.assertEqual(json.loads(output.getvalue())["status"], "PREFLIGHT_READY_NO_TRANSACTION_SAMPLE")
+                        self.assertIn("Preflight PASSED WITH WARNINGS: Explorer may start.", output.getvalue())
+                        self.assertIn("Transaction tracing: PENDING", output.getvalue())
                 self.assertEqual({path.name: path.read_bytes() for path in state.iterdir() if path.is_file()}, before)
+
+
+class CheckOutputTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        self.state = root / "state"
+        source = root / "config.json"
+        source.write_bytes((KIT / "config.example.json").read_bytes())
+        with redirect_stdout(io.StringIO()):
+            PUBLIC.prepare(source, self.state)
+        self.config = CONFIG.read_json(self.state / "config.json")
+        self.identity = CONFIG.read_json(self.state / "identity.json")
+        self.rpc = PublicRpcFixture(self.identity)
+        self.rpc.height = 0
+        self.rpc_urls = []
+        self.api_urls = []
+
+    def client(self, url):
+        self.rpc_urls.append(url)
+        return CHECK.ReadRpc(url, fetcher=lambda _, request: rpc_response(self.rpc, request))
+
+    def api(self, url):
+        self.api_urls.append(url)
+        return self.rpc.api(url)
+
+    def test_cli_human_and_json_success_report_pending_without_claiming_full_acceptance(self):
+        for command in ("preflight", "check"):
+            for mined in (False, True):
+                self.rpc.height = 10 if mined else 0
+                report = (CHECK.preflight(self.config, self.identity, rpc_factory=self.client) if command == "preflight" else
+                          CHECK.check_explorer(self.config, self.identity, rpc_factory=self.client, api_fetch=self.api))
+                for machine in (False, True):
+                    output, errors = io.StringIO(), io.StringIO()
+                    with self.subTest(command=command, mined=mined, machine=machine), \
+                            mock.patch.object(PUBLIC, "preflight", return_value=report), \
+                            mock.patch.object(PUBLIC, "check_explorer", return_value=report), \
+                            redirect_stdout(output), redirect_stderr(errors):
+                        status = PUBLIC.main([command, "--state-dir", str(self.state), *(["--json"] if machine else [])])
+                    self.assertEqual(status, 0)
+                    self.assertEqual(errors.getvalue(), "")
+                    if machine:
+                        self.assertEqual(json.loads(output.getvalue()), report)
+                    else:
+                        self.assertIn(command.capitalize() + " PASSED" + (":" if mined else " WITH WARNINGS:"), output.getvalue())
+                        self.assertIn("Checkpoint: block", output.getvalue())
+                        self.assertIn("not certified", output.getvalue())
+                        self.assertNotIn('"schema_version"', output.getvalue())
+
+    def test_cli_failures_have_clear_result_exit_code_and_optional_json(self):
+        for command in ("preflight", "check"):
+            for machine in (False, True):
+                output, errors = io.StringIO(), io.StringIO()
+                failure = CHECK.RpcFailure("RPC_TIMEOUT", "ingress.explorer_url /rpc: timed out")
+                with mock.patch.object(PUBLIC, "preflight", side_effect=failure), \
+                        mock.patch.object(PUBLIC, "check_explorer", side_effect=failure), \
+                        redirect_stdout(output), redirect_stderr(errors):
+                    status = PUBLIC.main([command, "--state-dir", str(self.state), *(["--json"] if machine else [])])
+                self.assertEqual(status, 1)
+                if machine:
+                    report = json.loads(output.getvalue())
+                    self.assertEqual(report["status"], command.upper() + "_FAILED")
+                    self.assertEqual(report["error"]["category"], "RPC_TIMEOUT")
+                    self.assertEqual(errors.getvalue(), "")
+                else:
+                    self.assertIn(command.capitalize() + " FAILED: [RPC_TIMEOUT]", errors.getvalue())
+                    self.assertEqual(output.getvalue(), "")
+
+    def test_check_identifies_public_rpc_and_api_failures_without_echoing_urls(self):
+        self.config["ingress"]["explorer_url"] = "http://" + SECRET + ".internal"
+        def failing_rpc(url):
+            if url.endswith("/rpc"):
+                return mock.Mock(side_effect=CHECK.RpcFailure("RPC_TIMEOUT", "connection timed out"))
+            return self.client(url)
+        with self.assertRaises(CHECK.RpcFailure) as caught:
+            CHECK.check_explorer(self.config, self.identity, rpc_factory=failing_rpc, api_fetch=self.api)
+        self.assertIn("ingress.explorer_url /rpc", str(caught.exception))
+        self.assertIn("Upstream preflight passed", str(caught.exception))
+        self.assertIn("No mining is needed", str(caught.exception))
+        self.assertNotIn(SECRET, str(caught.exception))
+        with self.assertRaises(CHECK.RpcFailure) as caught:
+            CHECK.check_explorer(self.config, self.identity, rpc_factory=self.client,
+                                 api_fetch=mock.Mock(side_effect=CHECK.RpcFailure("RPC_HTTP", "HTTP endpoint returned status 502")))
+        self.assertIn("ingress.explorer_url /api/v2", str(caught.exception))
+        self.assertIn("backend readiness", str(caught.exception))
+        self.assertNotIn(SECRET, str(caught.exception))
+
+    def test_override_checks_all_ingress_routes_without_changing_upstream_or_saved_config(self):
+        before = {p.name: p.read_bytes() for p in self.state.iterdir() if p.is_file()}
+        original = json.dumps(self.config, sort_keys=True)
+        override = "http://127.0.0.1:38080"
+        report = CHECK.check_explorer(self.config, self.identity, rpc_factory=self.client, api_fetch=self.api, explorer_url=override + "/")
+        self.assertEqual(report["ingress_check"], "override_origin")
+        self.assertIn(override + "/rpc", self.rpc_urls)
+        self.assertIn(self.config["rpc"]["read_url"], self.rpc_urls)
+        self.assertNotIn(self.config["ingress"]["explorer_url"] + "/rpc", self.rpc_urls)
+        self.assertTrue(all(url.startswith(override + "/api/v2/") for url in self.api_urls))
+        self.assertEqual(json.dumps(self.config, sort_keys=True), original)
+        output = io.StringIO()
+        with mock.patch.object(PUBLIC, "check_explorer", return_value=report) as check, redirect_stdout(output):
+            self.assertEqual(PUBLIC.main(["check", "--url", override, "--state-dir", str(self.state)]), 0)
+            self.assertEqual(check.call_args.kwargs["explorer_url"], override)
+        self.assertIn("configured visitor URL was NOT checked", output.getvalue())
+        self.assertEqual({p.name: p.read_bytes() for p in self.state.iterdir() if p.is_file()}, before)
+        with self.assertRaises(ValueError):
+            CHECK.check_explorer(self.config, self.identity, explorer_url="http://user:secret@localhost", rpc_factory=mock.Mock())
 
 
 if __name__ == "__main__":

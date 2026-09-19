@@ -84,13 +84,13 @@ def rpc_failure(method, params, code, message):
     return RpcFailure(category, f"{operation}{status}: {advice}")
 
 
-def named_rpc(client, name):
+def named_rpc(client, name, *, guidance=""):
     """Identify a configured route without disclosing its URL."""
     def call(method, params):
         try:
             return client(method, params)
         except RpcFailure as error:
-            raise RpcFailure(error.category, f"{name}: {error.detail}") from None
+            raise RpcFailure(error.category, f"{name}: {error.detail}" + (f" {guidance}" if guidance else "")) from None
     return call
 
 
@@ -340,11 +340,25 @@ def preflight(config, identity, *, rpc_factory=ReadRpc):
     return report
 
 
-def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch):
+def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch, explorer_url=None):
     """Compare the public route and indexed data at a fixed upstream checkpoint."""
+    origin = explorer_url if explorer_url is not None else config["ingress"]["explorer_url"]
+    endpoint(origin, origin=True)
+    origin = origin.rstrip("/")
     report = preflight(config, identity, rpc_factory=rpc_factory)
-    origin = config["ingress"]["explorer_url"]
-    public = rpc_factory(origin + "/rpc")
+    report["ingress_check"] = "override_origin" if explorer_url is not None else "configured_origin"
+    route = "check --url" if explorer_url is not None else "ingress.explorer_url"
+    guidance = ("Upstream preflight passed. Check the Explorer origin, proxy listener, port forwarding and NAT loopback; "
+                "use the actual visitor URL, not a documentation example. No mining is needed for a genesis RPC response.")
+    public = named_rpc(rpc_factory(origin + "/rpc"), route + " /rpc", guidance=guidance)
+
+    def api(path):
+        try:
+            return api_fetch(origin + path)
+        except RpcFailure as error:
+            raise RpcFailure(error.category, f"{route} /api/v2: {error.detail} "
+                             "Check proxy, gateway and Blockscout backend readiness; absence of mined blocks does not explain a connection failure.") from None
+
     identity_check(public, identity)
     checkpoint = {"number": hex(report["checkpoint"]["number"]), "hash": report["checkpoint"]["hash"]}
     same_checkpoint(public, checkpoint)
@@ -352,7 +366,7 @@ def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch):
         # Blockscout may omit genesis from its block index. Empty successful API
         # responses are valid here; stale blocks or mined transactions are not.
         for resource in ("blocks", "transactions?filter=validated"):
-            page = api_fetch(origin + "/api/v2/" + resource)
+            page = api("/api/v2/" + resource)
             if not isinstance(page, dict) or not isinstance(page.get("items"), list) or page.get("next_page_params") is not None:
                 raise ValueError("explorer returned an invalid genesis-only list response")
             if resource == "blocks":
@@ -361,12 +375,12 @@ def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch):
             elif page["items"]:
                 raise ValueError("explorer contains mined transactions beyond the genesis-only upstream")
     else:
-        indexed = api_fetch(origin + "/api/v2/blocks/" + checkpoint["hash"])
+        indexed = api("/api/v2/blocks/" + checkpoint["hash"])
         if indexed.get("hash") != checkpoint["hash"] or indexed.get("height") != report["checkpoint"]["number"]:
             raise ValueError("explorer has not indexed the observed upstream checkpoint")
     transaction = report["transaction"]
     if transaction is None:
-        sources = [rpc_factory(config["rpc"][name]) for name in ("read_url", "trace_url", "broadcast_url", "reference_url")
+        sources = [named_rpc(rpc_factory(config["rpc"][name]), name) for name in ("read_url", "trace_url", "broadcast_url", "reference_url")
                    if name in config["rpc"]]
         for client in [public, *sources]:
             same_checkpoint(client, checkpoint)
@@ -375,7 +389,7 @@ def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch):
         report["status"] = "CHECKED_NO_TRANSACTION_SAMPLE"
         return report
     receipt = public("eth_getTransactionReceipt", [transaction])
-    indexed_tx = api_fetch(origin + "/api/v2/transactions/" + transaction)
+    indexed_tx = api("/api/v2/transactions/" + transaction)
     if (not isinstance(receipt, dict) or indexed_tx.get("hash") != transaction
             or indexed_tx.get("block_number") != quantity(receipt.get("blockNumber"))
             or indexed_tx.get("result") != ("success" if quantity(receipt.get("status")) == 1 else "execution reverted")
@@ -384,16 +398,18 @@ def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch):
     canonical = block(public, receipt["blockNumber"])
     if canonical["hash"] != receipt["blockHash"] or transaction not in canonical["transactions"]:
         raise ValueError("public receipt is no longer canonical")
-    source_receipt = rpc_factory(config["rpc"]["read_url"])("eth_getTransactionReceipt", [transaction])
+    source_receipt = named_rpc(rpc_factory(config["rpc"]["read_url"]), "read_url")("eth_getTransactionReceipt", [transaction])
     for field in ("transactionHash", "blockHash", "blockNumber", "status", "gasUsed", "effectiveGasPrice"):
         if not isinstance(source_receipt, dict) or receipt.get(field) != source_receipt.get(field):
             raise ValueError("public receipt differs from the configured upstream")
     fee = quantity(receipt.get("gasUsed")) * quantity(receipt.get("effectiveGasPrice"))
     if str(indexed_tx.get("fee", {}).get("value")) != str(fee):
         raise ValueError("explorer transaction fee differs from the canonical receipt")
-    for url in {config["rpc"]["read_url"], config["rpc"].get("reference_url", config["rpc"]["read_url"])}:
-        same_checkpoint(rpc_factory(url), checkpoint)
-        same_checkpoint(rpc_factory(url), canonical)
+    for name in ("read_url", "reference_url"):
+        if name in config["rpc"]:
+            client = named_rpc(rpc_factory(config["rpc"][name]), name)
+            same_checkpoint(client, checkpoint)
+            same_checkpoint(client, canonical)
     same_checkpoint(public, checkpoint)
     report["status"] = "CHECKED"
     return report

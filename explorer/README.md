@@ -1,5 +1,7 @@
 # USDB 浏览器与公共 RPC 独立部署
 
+用户操作入口见 [Explorer handbook](../docs/handbook/README.md)；本文保留参数、拓扑和部署机制参考。
+
 此目录提供独立的 `usdb-explorer` 工具和发布通道，并保留 `usdb-public` 兼容命令。
 新安装默认连接同机 USDB 的 `http://127.0.0.1:8545`，与 `usdb-node` 默认 Docker 部署配合使用。
 上游仍须显式启用 archive 和私有 tracing；普通节点的默认配置不满足完整浏览器的历史查询要求。
@@ -68,12 +70,13 @@ GitHub Release 同时保留安装包、脚本及各自 `.sha256`，便于离线�
 再进行 prepare/preflight/up。节点侧还应为同机 Explorer 显式预留资源。操作与边界见
 [USDB 专用查询节点文档](https://github.com/buckyos/usdb/blob/master/doc/publish/usdb-node-query-mode.md)。
 
-公网或局域网通过 IP＋端口访问时，先设置访问者实际使用的 URL。例如把外部 `38080`
-映射到测试机 `28080`（`192.0.2.10` 请替换成测试机实际对外 IP）：
+公网或局域网通过 IP＋端口访问时，先设置访问者实际使用的 URL。局域网直接使用真实服务器
+IP 和本机端口；公网映射时，例如外部 `38080` 转到测试机 `28080`，URL 应填写真实公网地址
+和外部端口。不要复制文档地址 `192.0.2.10`。以下提示要求输入实际地址：
 
 ```bash
-usdb-explorer configure --local-node \
-  --explorer-url http://192.0.2.10:38080 --http-port 28080
+read -r -p 'Actual Explorer URL (including port): ' explorer_url
+usdb-explorer configure --local-node --explorer-url "$explorer_url" --http-port 28080
 usdb-explorer prepare
 usdb-explorer preflight
 usdb-explorer up
@@ -87,8 +90,8 @@ usdb-explorer up
 已安装 v0.2.2 或更早版本时，先安装包含本功能的新版本。升级会保留原配置；需要显式切换：
 
 ```bash
-usdb-explorer configure --local-node \
-  --explorer-url http://192.0.2.10:38080 --http-port 28080
+read -r -p 'Actual Explorer URL (including port): ' explorer_url
+usdb-explorer configure --local-node --explorer-url "$explorer_url" --http-port 28080
 usdb-explorer down
 usdb-explorer prepare --replace
 usdb-explorer preflight
@@ -297,9 +300,20 @@ Certbot 的 `live/` 文件通常链接到其他目录，应在续期 deploy hook
 - `check`：重复上游采样，并通过 `explorer_url` 查询实际网关和浏览器 API，核对固定区块、交易、
   receipt 状态、gasUsed、实际 fee、canonical membership，结束前再次核对哈希。外部 Nginx 尚未接入会失败。
 
+本分支改为默认输出 `PASSED`、`PASSED WITH WARNINGS` 或 `FAILED`，并展示高度、采样和下一步。
+脚本应显式使用 `preflight --json` / `check --json`；退出码 0 表示可启动/本次检查通过（可含待验证样本），
+1 表示检查失败。成功 JSON 保留原 status，失败 JSON 包含 `error.category` 和 `error.message`。
+v0.2.4 仍只有默认 JSON，这些新参数需安装包含改动的版本。
+
 ```bash
 usdb-explorer check
 ```
+
+定位公布地址或 NAT 回环问题时，可用 `check --url http://127.0.0.1:28080` 临时检查本机入口。
+它不修改公布 URL 或前端配置，并明确标记 `ingress_check=override_origin`；本机检查通过不能证明
+公布地址可达。默认 check 的公共路由错误标明 `ingress.explorer_url /rpc` 或 `/api/v2`，与上游失败区分。
+错误地址应修正源配置，再 `down → prepare --replace → up`，不能靠启用 mining 解决网络超时。
+详细流程见 [handbook 排错章节](../docs/handbook/troubleshooting.md)。
 
 未设置 `reference_url` 时报告明确显示 `not_configured`，只证明与所配置上游一致，不能证明它已达到
 全网最新高度。`CHECKED` 也不等于完整 archive 重放、重组恢复、钱包发交易、TLS 部署或奖励语义验收；

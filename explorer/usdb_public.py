@@ -330,6 +330,47 @@ def check_local_relay(root, config, identity, report):
     print("Local RPC relay: all container routes match the upstream checkpoint.")
 
 
+def print_check_report(command, report, *, json_output=False):
+    """Keep startup readiness distinct from deferred transaction qualification."""
+    if json_output:
+        print(json.dumps(report, indent=2))
+        return
+    pending = report.get("trace_sample") == "pending_no_transaction_sample"
+    result = "PASSED WITH WARNINGS" if pending else "PASSED"
+    outcome = "Explorer may start." if command == "preflight" else "Explorer RPC and API checks passed."
+    print(f"{command.capitalize()} {result}: {outcome}")
+    print(f"Checkpoint: block {report['checkpoint']['number']}")
+    history = "genesis state readable; archive history not yet verified" if report.get("historical_state_sample") == "genesis_only" else report.get("historical_state_sample", "not_run")
+    print(f"Historical state: {history}")
+    print("Transaction tracing: " + ("PENDING (no mined transaction sample)" if pending else report.get("trace_sample", "not_run")))
+    if command == "preflight":
+        print("Ingress: not checked; preflight probes upstream RPC only.")
+    if command == "check":
+        if report.get("ingress_check") == "override_origin":
+            print("Target: --url override; the configured visitor URL was NOT checked.")
+        else:
+            print("Target: configured visitor URL, reached from this host.")
+    for warning in report.get("warnings", []):
+        print(f"WARNING: {warning}")
+    if command == "preflight":
+        print("Next: run usdb-explorer up; run usdb-explorer check after startup.")
+    elif pending:
+        print("Next: rerun usdb-explorer check after a transaction is mined to validate receipt and callTracer execution.")
+    print("Scope: configured upstream and available samples; full archive and network-wide synchronization are not certified.")
+
+
+def print_failure(args, message, *, category=None):
+    """Checks expose a stable exit code and optional machine-readable failure document."""
+    if args.command in {"preflight", "check"}:
+        if args.json_output:
+            print(json.dumps({"schema_version": "usdb-public-check:v1", "status": args.command.upper() + "_FAILED",
+                              "error": {"category": category or "VALIDATION_ERROR", "message": message}}, indent=2))
+        else:
+            print(f"{args.command.capitalize()} FAILED: {message}", file=sys.stderr)
+    else:
+        print(f"USDB public operation failed: {message}", file=sys.stderr)
+
+
 def parser():
     result = argparse.ArgumentParser(description="Operate standalone USDB explorer and public RPC services")
     actions = result.add_subparsers(dest="command", required=True)
@@ -337,6 +378,10 @@ def parser():
         action = actions.add_parser(name)
         action.add_argument("--state-dir", type=Path, default=Path.home() / ".config/usdb-public/default",
                             help="Private deployment directory, independent of node.env")
+        if name in {"preflight", "check"}:
+            action.add_argument("--json", dest="json_output", action="store_true", help="Print only a JSON report; exit 0 for ready/passed, 1 for failure")
+        if name == "check":
+            action.add_argument("--url", help="Check an explicit Explorer origin without changing the configured visitor URL")
         if name in {"configure", "prepare"}:
             action.add_argument("--config", type=Path, default=Path.home() / ".config/usdb-public/config.json",
                                 help="Operator-owned configuration (default ~/.config/usdb-public/config.json)")
@@ -366,8 +411,8 @@ def execute(args, root):
     config, identity = read_json(root / "config.json"), read_json(root / "identity.json")
     document = read_json(root / "compose.json")
     if args.command in {"preflight", "check"}:
-        report = (preflight if args.command == "preflight" else check_explorer)(config, identity)
-        print(json.dumps(report, indent=2))
+        report = preflight(config, identity) if args.command == "preflight" else check_explorer(config, identity, explorer_url=args.url)
+        print_check_report(args.command, report, json_output=args.json_output)
     elif args.command == "up":
         if not read_json(root / "images.lock.json")["qualified_for_public_exposure"]:
             print("WARNING: Testnet image security is report-only; unresolved findings do not block startup.")
@@ -424,10 +469,10 @@ def main(argv=None):
                 return execute(args, root)
         return execute(args, root)
     except subprocess.CalledProcessError:
-        print("USDB public operation failed: Docker command failed; inspect service status/logs (configuration output is suppressed).", file=sys.stderr)
+        print_failure(args, "Docker command failed; inspect service status/logs (configuration output is suppressed).", category="DOCKER_ERROR")
     except subprocess.TimeoutExpired:
-        print("USDB public operation failed: Docker command timed out; inspect status before retrying.", file=sys.stderr)
+        print_failure(args, "Docker command timed out; inspect status before retrying.", category="DOCKER_TIMEOUT")
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         # URL transport errors are sanitized by public_checks before reaching this boundary.
-        print(f"USDB public operation failed: {error}", file=sys.stderr)
+        print_failure(args, str(error), category=getattr(error, "category", None))
     return 1
