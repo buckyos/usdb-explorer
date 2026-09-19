@@ -333,12 +333,17 @@ def source_inputs(repo, revision):
     contract = load_json_bytes(read("explorer/networks/usdb-testnet-v0.contract.json").encode(), "RPC contract")
     lock = load_json_bytes(read("explorer/assets/images.lock.json").encode(), "image lock")
     gateway = git(repo, "ls-tree", "-r", revision, "--", "gateway", "explorer/assets/Dockerfile.gateway")
-    return {"network": {key: catalog[key] for key in identity_keys},
+    result = {"network": {key: catalog[key] for key in identity_keys},
             "rpc_contract": contract["rpc"],
             "config_schema": constant("explorer/public_config.py", "CONFIG_SCHEMA"),
             "deployment_schema": constant("explorer/usdb_public.py", "DEPLOYMENT_SCHEMA"),
             "images": {key: value["reference"] for key, value in sorted(lock["images"].items())},
             "gateway_source_sha256": sha256_bytes(gateway.encode())}
+    if lock["images"]["frontend"].get("build_from_source"):
+        frontend = git(repo, "ls-tree", "-r", revision, "--", "frontend")
+        require(bool(frontend), "custom frontend source is missing")
+        result["frontend_source_sha256"] = sha256_bytes(frontend.encode())
+    return result
 
 
 def source_changes(previous, current):
@@ -347,9 +352,9 @@ def source_changes(previous, current):
         return []
     tracked = [("network", "network_reset"), ("rpc_contract", "config_change"),
                ("config_schema", "config_change"), ("deployment_schema", "config_change"),
-               ("gateway_source_sha256", "restart_required")]
-    changes = [{"path": key, "previous": previous[key], "current": current[key], "impact": impact}
-               for key, impact in tracked if previous[key] != current[key]]
+               ("gateway_source_sha256", "restart_required"), ("frontend_source_sha256", "restart_required")]
+    changes = [{"path": key, "previous": previous.get(key), "current": current.get(key), "impact": impact}
+               for key, impact in tracked if previous.get(key) != current.get(key)]
     for name in sorted(set(previous["images"]) | set(current["images"])):
         before, after = previous["images"].get(name), current["images"].get(name)
         if before != after:
@@ -390,7 +395,7 @@ def audit_before_tag(repo, release_id, revision):
     return previous
 
 
-def build_changes(repo, release_id, gateway_image, *, previous=None):
+def build_changes(repo, release_id, gateway_image, *, previous=None, frontend_image=None):
     """Freeze one source range, fragments, coverage and independently compared inputs."""
     current = tag_identity(repo, release_id)
     revision = current["source_revision"]
@@ -414,7 +419,12 @@ def build_changes(repo, release_id, gateway_image, *, previous=None):
         flags["data_rebuild"] = False
     classification = next((key for key in ("network_reset", "data_rebuild", "config_change", "restart_required") if flags[key]), "in_place")
     compare_url = f"https://github.com/{REPOSITORY}/compare/{previous_revision}...{revision}" if previous_revision else f"https://github.com/{REPOSITORY}/tree/{revision}"
-    return {"schema_version": RELEASE_CHANGES_SCHEMA_VERSION, "repository": REPOSITORY,
+    if "frontend_source_sha256" in inputs:
+        require(re.fullmatch(r"ghcr\.io/buckyos/usdb-explorer-frontend@sha256:[0-9a-f]{64}", frontend_image or ""),
+                "frontend image must be pinned to an Explorer digest")
+    else:
+        require(frontend_image is None, "custom frontend is not supported by this source revision")
+    return {**({"frontend_image": frontend_image} if frontend_image else {}), "schema_version": RELEASE_CHANGES_SCHEMA_VERSION, "repository": REPOSITORY,
             "release_id": release_id, "source_revision": revision, "previous_release": previous,
             "gateway_image": gateway_image, "source_inputs": inputs, "previous_source_inputs": prior_inputs,
             "changes": changes, "coverage_enforced": False,
@@ -476,6 +486,7 @@ def render_release_notes(changes):
             + f"\n## 安装本版本\n\n草稿附件在完成 Publish 后才可下载。\n\n```bash\n{command}\n```\n\n"
             + f"[部署与升级说明]({docs}/explorer/README.md)。\n\n"
             + f"## 构建与安全\n\n源码：`{revision}`。\n\nGateway：`{changes['gateway_image']}`。\n\n"
+            + (f"Frontend：`{changes['frontend_image']}`。\n\n" if "frontend_image" in changes else "")
             + f"测试网镜像漏洞检查为 report-only，扫描与证据错误仍阻断发布；[策略与验收边界]({docs}/docs/image-security.md)。\n")
 
 
@@ -492,14 +503,14 @@ def write_release_files(changes, output_dir, notes_path):
         path.write_bytes(payload)
 
 
-def validate_release_files(repo, release_id, gateway_image, directory, body, *, expected_previous=...):
+def validate_release_files(repo, release_id, gateway_image, directory, body, *, expected_previous=..., frontend_image=None):
     """Regenerate all evidence from its frozen baseline; rehashing edited notes cannot pass."""
     path = directory / "release-changes.json"
     changes = load_json(path)
     require(changes.get("schema_version") == RELEASE_CHANGES_SCHEMA_VERSION, "unsupported release changes schema")
     if expected_previous is not ...:
         require(changes["previous_release"] == expected_previous, "release changes have the wrong published boundary for this build")
-    expected = build_changes(repo, release_id, gateway_image, previous=changes["previous_release"])
+    expected = build_changes(repo, release_id, gateway_image, previous=changes["previous_release"], frontend_image=frontend_image)
     require(path.read_bytes() == canonical_json(expected), "release changes differ from frozen source evidence")
     require((directory / "release-changes.json.sha256").read_bytes() == (sha256_file(path) + "  release-changes.json\n").encode(),
             "release changes checksum mismatch")
@@ -518,6 +529,7 @@ def main():
         command.add_argument("--repository-root", type=Path, default=ROOT)
         command.add_argument("--release-id", required=True)
         command.add_argument("--gateway-image", required=True)
+        command.add_argument("--frontend-image")
         command.add_argument("--output-dir", type=Path, required=True)
         command.add_argument("--notes", type=Path, required=True)
         if name == "generate":
@@ -544,11 +556,11 @@ def main():
                 previous = previous_published(api, args.repository_root, args.release_id, published_before=cutoff)
             else:
                 previous = None if args.previous_release == "none" else tag_identity(args.repository_root, args.previous_release)
-            changes = build_changes(args.repository_root, args.release_id, args.gateway_image, previous=previous)
+            changes = build_changes(args.repository_root, args.release_id, args.gateway_image, previous=previous, frontend_image=args.frontend_image)
             write_release_files(changes, args.output_dir, args.notes)
             print(json.dumps({"release_id": args.release_id, "previous_release": previous, "coverage": changes["coverage"]}))
         else:
-            validate_release_files(args.repository_root, args.release_id, args.gateway_image, args.output_dir, args.notes.read_text())
+            validate_release_files(args.repository_root, args.release_id, args.gateway_image, args.output_dir, args.notes.read_text(), frontend_image=args.frontend_image)
             print("Release changes, checksums, Markdown and body match frozen source")
     except (OSError, ValueError, KeyError, TypeError, SyntaxError, subprocess.SubprocessError) as error:
         parser.exit(1, f"Explorer release notes failed: {error}\n")

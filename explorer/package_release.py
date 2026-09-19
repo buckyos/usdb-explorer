@@ -21,7 +21,7 @@ FILES = ("usdb-explorer", "usdb-public", "usdb_public.py", "public_config.py", "
          "assets/images.lock.json", "networks/usdb-testnet-v0.json", "networks/usdb-testnet-v0.contract.json", "README.md")
 
 
-def package(repo, output, version, gateway_image):
+def package(repo, output, version, gateway_image, frontend_image=None):
     """Package only an allowlist of public files and a digest-bound gateway image."""
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.]+)?", version):
         raise ValueError("version must be an independent semantic version")
@@ -30,6 +30,13 @@ def package(repo, output, version, gateway_image):
     check_network(repo)
     source = repo / "explorer"
     lock = image_lock(source)
+    if lock["images"]["frontend"].get("build_from_source"):
+        if not re.fullmatch(r"ghcr\.io/buckyos/usdb-explorer-frontend@sha256:[0-9a-f]{64}", frontend_image or ""):
+            raise ValueError("frontend-image must be pinned to an Explorer frontend digest")
+        lock["images"]["frontend"] = {"tag": "v" + version, "reference": frontend_image,
+                                        "upstream": lock["images"]["frontend"]}
+    elif frontend_image is not None:
+        raise ValueError("frontend-image is not supported by this source lock")
     lock["images"]["gateway"] = {"tag": "v" + version, "reference": gateway_image}
     head = subprocess.run(["git", "rev-parse", "--verify", "HEAD"], cwd=repo, capture_output=True, text=True)
     revision = head.stdout.strip() if head.returncode == 0 else None
@@ -72,6 +79,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version")
     parser.add_argument("--gateway-image")
+    parser.add_argument("--frontend-image")
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--check-network", action="store_true")
     args = parser.parse_args()
@@ -83,7 +91,7 @@ def main():
         else:
             if not all((args.version, args.gateway_image, args.output_dir)):
                 parser.error("--version, --gateway-image and --output-dir are required")
-            print(package(repo, args.output_dir, args.version, args.gateway_image))
+            print(package(repo, args.output_dir, args.version, args.gateway_image, args.frontend_image))
         return 0
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"Public release packaging failed: {error}", file=sys.stderr)

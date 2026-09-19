@@ -8,6 +8,10 @@ on:
         description: Immutable usdb-explorer-gateway digest built from the selected ref
         required: true
         type: string
+      frontend_image:
+        description: Immutable usdb-explorer-frontend digest built from the selected ref
+        required: true
+        type: string
       enforcement:
         description: Report-only records findings; strict also blocks unresolved High/Critical findings
         required: true
@@ -37,11 +41,12 @@ jobs:
         id: plan
         env:
           GATEWAY_IMAGE: ${{ inputs.gateway_image }}
+          FRONTEND_IMAGE: ${{ inputs.frontend_image }}
           ENFORCEMENT: ${{ inputs.enforcement }}
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           python3 scripts/image_security.py plan --gateway-image "$GATEWAY_IMAGE" \
-            --enforcement "$ENFORCEMENT"
+            --enforcement "$ENFORCEMENT" --frontend-image "$FRONTEND_IMAGE"
   security:
     name: Review ${{ matrix.name }} image
     needs: identity

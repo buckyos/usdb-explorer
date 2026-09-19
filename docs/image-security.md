@@ -11,8 +11,8 @@
 | 主网 | 尚不支持部署；策略层固定 strict，拒绝 report-only 请求 |
 | 扫描/数据库下载错误、缺少目标或证据、digest/source/platform 不符、上传失败 | 所有模式均失败 |
 
-每个版本扫描 gateway、Blockscout backend/frontend、PostgreSQL、Redis、Nginx，以及 Go 构建镜像。
-gateway 必须来自本仓库的 immutable digest，并携带匹配源码 commit 的 OCI revision label；
+每个版本扫描 gateway、Blockscout backend/frontend、PostgreSQL、Redis、Nginx，以及 Go、Node 构建镜像。
+gateway 和定制 frontend 必须来自本仓库的 immutable digest，并携带匹配源码 commit 的 OCI revision label；
 第三方镜像绑定选定 Explorer commit 的 lock 和网络契约摘要，不冒充由该 commit 构建。
 平台固定为 linux/amd64，与发布包的部署平台一致。gateway 的 Go 二进制必须出现在扫描目标中。
 
@@ -37,11 +37,12 @@ Explorer 没有继承节点镜像的安全例外或审查指纹；不能因为�
 
 ```bash
 gh workflow run release-security-review.yml --repo buckyos/usdb-explorer --ref v0.2.0 \
+  -f frontend_image='ghcr.io/buckyos/usdb-explorer-frontend@sha256:<64位真实digest>' \
   -f gateway_image='ghcr.io/buckyos/usdb-explorer-gateway@sha256:<64位真实digest>' \
   -f enforcement=strict
 ```
 
-其余镜像自动来自该 ref 的 lock。选择错误源码、可变 tag 镜像或其他仓库 gateway 都会失败。
+frontend 同样需填写本次构建的 immutable digest。其余镜像自动来自该 ref 的 lock。选择错误源码、可变 tag 镜像或其他仓库 gateway 都会失败。
 该流程不创建/替换镜像、tag、release 附件或安全例外；它也不改变已发布版本原来的 build 结果。
 如果自动扫描因临时下载/扫描错误失败，可仅重跑失败的扫描 jobs；不要重建或替换已有 release 资产。
 

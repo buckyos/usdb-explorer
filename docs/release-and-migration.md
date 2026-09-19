@@ -12,6 +12,8 @@ Explorer 首次 [独立 CI](https://github.com/buckyos/usdb-explorer/actions/run
    required reviewer，Publish 由维护者手工 dispatch。Actions 已启用，workflow 分别声明
    contents/packages 权限。构建器推送 `ghcr.io/buckyos/usdb-explorer-gateway`，公开安装还要求
    该 package 可供目标操作者拉取；新镜像 package 的可见性需在首次构建后核对。
+   定制前端新增 `ghcr.io/buckyos/usdb-explorer-frontend`，首次发布前同样核对 public 可见性，
+   并在未登录 GHCR 的环境验证该版本 digest 可以拉取。
 3. 首个独立 tag `v0.2.0` 已完成 build；按下方过渡说明完成发布。后续 tag 须包含新的 Publish workflow。
 4. 原仓库迁移删除与旧 public tag 入口退役已提交。首次切换不更新或移动任何旧 release tag。
 
@@ -21,7 +23,7 @@ Explorer 首次 [独立 CI](https://github.com/buckyos/usdb-explorer/actions/run
 ## 正常发版
 
 `ci.yml` 执行独立单元/部署/安装/迁移/Nginx 检查。`release-build.yml` 只响应本仓库 `v*` tag，
-检查 annotated tag，重新运行 CI，再生成 gateway 镜像和安装资产：
+检查 annotated tag，重新运行 CI，再生成 gateway、定制 frontend 镜像和安装资产：
 
 - `usdb-explorer-vX.Y.Z.tar.gz` 及 `.sha256`
 - `install-usdb-explorer-vX.Y.Z.sh` 及 `.sha256`
@@ -30,7 +32,7 @@ Explorer 首次 [独立 CI](https://github.com/buckyos/usdb-explorer/actions/run
 新版本合计七个附件，变更记录与正文从固定 tag 和前一已发布版本生成；规则见
 [发布变更管理](release-change-management.md)。已有四附件版本继续兼容。
 
-随后按完整镜像 lock 扫描七个固定 digest，测试网默认 report-only。High/Critical 漏洞保留为
+随后按完整镜像 lock 扫描八个固定 digest（含新增 Node 构建镜像），测试网默认 report-only。High/Critical 漏洞保留为
 未解决项；扫描、镜像身份、证据生成或上传错误会让整个 build 失败。草稿可能已经存在，
 Publish 仍要求原 build 完整成功。手工批次审查与证据格式见 [安全策略](image-security.md)。
 

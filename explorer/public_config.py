@@ -49,15 +49,17 @@ def endpoint(value, *, origin=False):
 
 
 def image_lock(root):
-    """Release builds add a prebuilt gateway digest; source checkouts build it locally."""
+    """Release builds pin first-party image digests; source checkouts build them locally."""
     value = read_json(root / "assets/images.lock.json")
     required = {"backend", "frontend", "postgres", "redis", "nginx", "go"}
     if (value.get("schema_version") != IMAGE_SCHEMA or not isinstance(value.get("qualified_for_public_exposure"), bool)
-            or set(value.get("images", {})) not in (required, required | {"gateway"})):
+            or not required.issubset(value.get("images", {})) or set(value.get("images", {})) - required - {"gateway", "node"}):
         raise ValueError("invalid public service image lock")
     for item in value["images"].values():
         if not isinstance(item, dict) or not DIGEST_IMAGE.fullmatch(str(item.get("reference", ""))):
             raise ValueError("every public service image must be pinned by digest")
+    if value["images"]["frontend"].get("build_from_source") and "node" not in value["images"]:
+        raise ValueError("source frontend builds require a frozen Node image")
     return value
 
 
@@ -87,13 +89,14 @@ def load_config(path, kit):
             or type(identity.get("network_id")) is not int or not HASH.fullmatch(str(identity.get("genesis_block_hash", "")))):
         raise ValueError("invalid frozen network identity")
     rpc = value["rpc"]
-    fields(rpc, set(), {"mode", "read_url", "trace_url", "broadcast_url", "reference_url", "historical_block", "transaction"})
+    fields(rpc, set(), {"mode", "read_url", "trace_url", "broadcast_url", "reference_url", "historical_block", "transaction", "indexer_url"})
     # Missing mode preserves the original externally reachable RPC contract on upgrade.
     rpc.setdefault("mode", "external")
     if rpc["mode"] not in {"external", "local-node"}:
         raise ValueError("rpc.mode must be external or local-node")
     if rpc["mode"] == "local-node":
         rpc.setdefault("read_url", "http://127.0.0.1:8545")
+        rpc.setdefault("indexer_url", "http://127.0.0.1:28020")
     if "read_url" not in rpc:
         raise ValueError("rpc.read_url is required for external RPC mode")
     rpc.setdefault("trace_url", rpc["read_url"])
@@ -104,6 +107,11 @@ def load_config(path, kit):
             if rpc["mode"] == "local-node" and key != "reference_url":
                 if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
                     raise ValueError(f"local-node {key} must use an HTTP loopback endpoint")
+    # The BTC-side view is optional for existing external deployments. Its failure never downgrades chain preflight.
+    if rpc.get("indexer_url") is not None:
+        indexer = endpoint(rpc["indexer_url"])
+        if rpc["mode"] == "local-node" and (indexer.scheme != "http" or indexer.hostname not in {"127.0.0.1", "localhost", "::1"}):
+            raise ValueError("local-node indexer_url must use an HTTP loopback endpoint")
     if "historical_block" in rpc and (type(rpc["historical_block"]) is not int or rpc["historical_block"] < 0):
         raise ValueError("historical_block must be a nonnegative integer")
     if "transaction" in rpc and not HASH.fullmatch(str(rpc["transaction"])):
@@ -169,6 +177,8 @@ def container_rpc(config):
     if rpc.get("mode") == "local-node":
         for route in ("read", "trace", "broadcast"):
             rpc[route + "_url"] = "http://rpc-relay:8080/" + route
+        if rpc.get("indexer_url"):
+            rpc["indexer_url"] = "http://rpc-relay:8080/indexer"
     return rpc
 
 
@@ -176,7 +186,7 @@ def local_rpc_config(config, *, host):
     """Bridge Docker to host loopback through a private socket, without a host TCP listener."""
     listen = "unix:/run/usdb-rpc/upstream.sock" if host else "8080"
     routes = []
-    for route in ("read", "trace", "broadcast"):
+    for route in ("read", "trace", "broadcast", *(("indexer",) if config["rpc"].get("indexer_url") else ())):
         upstream = config["rpc"][route + "_url"] if host else "http://unix:/run/usdb-rpc/upstream.sock:/" + route
         parsed = endpoint(upstream) if host else None
         if host and not parsed.path:
@@ -296,12 +306,19 @@ def compose_document(config, identity, lock, root):
         "gateway": service(images.get("gateway", config["deployment_id"] + "-gateway:local"), "256m", .25, networks=["app"],
             environment={"RPC_UPSTREAM": rpc["read_url"], "BROADCAST_UPSTREAM": rpc["broadcast_url"],
                          "CHAIN_ID_HEX": hex(identity["chain_id"]), "GENESIS_HASH": identity["genesis_block_hash"],
+                         "INDEXER_UPSTREAM": rpc.get("indexer_url") or "",
+                         "NETWORK_IDENTITY_JSON": json.dumps({key: identity[key] for key in (
+                             "bundle_id", "chain_id", "genesis_block_hash", "btc_network_id", "btc_index_origin_height", "btc_activation_registry_id")}),
                          "NETWORK_FILE": "/config/network.json"},
             extra_hosts=["host.docker.internal:host-gateway"], volumes=[f"{root}/network.json:/config/network.json:ro"],
             read_only=True, cap_drop=["ALL"]),
     }
     if "gateway" not in images:
         services["gateway"]["build"] = {"context": str(root / "build"), "dockerfile": "Dockerfile.gateway", "args": {"GO_IMAGE": images["go"]}}
+    if lock["images"]["frontend"].get("build_from_source"):
+        services["frontend"]["image"] = config["deployment_id"] + "-frontend:local"
+        services["frontend"]["build"] = {"context": str(root / "build"), "dockerfile": "frontend/Dockerfile",
+                                           "args": {"NODE_IMAGE": images["node"]}}
     binding = ingress["bind_address"]
     if ingress["mode"] == "external":
         services["frontend"]["ports"] = [f"{binding}:{ingress['web_port']}:3000"]

@@ -18,7 +18,7 @@ jobs:
     needs: tests
     if: github.repository == 'buckyos/usdb-explorer'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     outputs:
       security_matrix: ${{ steps.security.outputs.matrix }}
       source_revision: ${{ steps.version.outputs.revision }}
@@ -48,6 +48,7 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('version=' + tag.removeprefix('v') + '\n')
               output.write('go_image=' + lock['images']['go']['reference'] + '\n')
+              output.write('node_image=' + lock['images']['node']['reference'] + '\n')
               output.write('revision=' + subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() + '\n')
           PY
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
@@ -71,31 +72,58 @@ jobs:
             org.opencontainers.image.revision=${{ steps.version.outputs.revision }}
           provenance: mode=max
           sbom: true
+      - name: Build the USDB frontend from verified Blockscout source
+        id: frontend
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: frontend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/buckyos/usdb-explorer-frontend:${{ github.ref_name }}
+          build-args: |
+            NODE_IMAGE=${{ steps.version.outputs.node_image }}
+            GIT_COMMIT_SHA=${{ steps.version.outputs.revision }}
+            GIT_TAG=${{ github.ref_name }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/buckyos/usdb-explorer
+            org.opencontainers.image.revision=${{ steps.version.outputs.revision }}
+          cache-from: type=gha,scope=explorer-frontend
+          cache-to: type=gha,mode=max,scope=explorer-frontend
+          provenance: mode=max
+          sbom: true
       - name: Prepare the standalone kit and release-bound one-line installer
         env:
           PUBLIC_VERSION: ${{ steps.version.outputs.version }}
           GATEWAY_DIGEST: ${{ steps.gateway.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
         run: |
           python3 explorer/package_release.py --version "$PUBLIC_VERSION" \
+            --frontend-image "ghcr.io/buckyos/usdb-explorer-frontend@$FRONTEND_DIGEST" \
             --gateway-image "ghcr.io/buckyos/usdb-explorer-gateway@$GATEWAY_DIGEST" --output-dir dist
           bash -n "dist/install-usdb-explorer-v$PUBLIC_VERSION.sh"
       - name: Plan digest scans for the complete explorer image lock
         id: security
         env:
           GATEWAY_DIGEST: ${{ steps.gateway.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
         run: |
           python3 scripts/image_security.py plan \
+            --frontend-image "ghcr.io/buckyos/usdb-explorer-frontend@$FRONTEND_DIGEST" \
             --gateway-image "ghcr.io/buckyos/usdb-explorer-gateway@$GATEWAY_DIGEST"
       - name: Create a reviewable draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
           GATEWAY_DIGEST: ${{ steps.gateway.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
         run: |
           python3 scripts/release_notes.py generate --release-id "$RELEASE_TAG" \
+            --frontend-image "ghcr.io/buckyos/usdb-explorer-frontend@$FRONTEND_DIGEST" \
             --gateway-image "ghcr.io/buckyos/usdb-explorer-gateway@$GATEWAY_DIGEST" \
             --output-dir dist --notes public-release-notes.md
           python3 scripts/release_notes.py validate-release --release-id "$RELEASE_TAG" \
+            --frontend-image "ghcr.io/buckyos/usdb-explorer-frontend@$FRONTEND_DIGEST" \
             --gateway-image "ghcr.io/buckyos/usdb-explorer-gateway@$GATEWAY_DIGEST" \
             --output-dir dist --notes public-release-notes.md
           gh release create "$RELEASE_TAG" dist/* --verify-tag --draft \

@@ -209,7 +209,7 @@ class PublicServicesTests(unittest.TestCase):
 
     def test_cli_lifecycle_from_extracted_release_without_node_installation(self):
         image = "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32
-        archive = RELEASE.package(ROOT, self.root / "dist", "0.1.0", image)
+        archive = RELEASE.package(ROOT, self.root / "dist", "0.1.0", image, frontend_image="ghcr.io/buckyos/usdb-explorer-frontend@sha256:" + "cd" * 32)
         install = self.root / "installation"
         with tarfile.open(archive) as tar:
             for member in tar.getmembers():

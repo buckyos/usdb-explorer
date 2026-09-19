@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""Exercise the built frontend without upstream nodes, credentials or public listeners.
+
+Run with a pinned Playwright installation (CI installs playwright==1.59.0).
+"""
+import argparse
+from contextlib import contextmanager
+import json
+from pathlib import Path
+import subprocess
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+HASH = "a" * 64
+PASS = HASH + "i0"
+SCHEMA = "usdb-explorer-public:v1"
+STATE = {"btc_height": 963900, "stable_block_hash": HASH, "snapshot_id": HASH,
+         "system_state_id": HASH, "activation_registry_id": HASH}
+PROFILE = {"pass_id": PASS, "owner_script_hash": HASH, "owner_btc_addr": "bc1qfixture",
+           "usdb_main": "0x" + "11" * 20, "state": "active", "pass_kind": "standard",
+           "raw_energy": "340282366920938463463374607431768211455", "collab_contribution": "0",
+           "effective_energy": "340282366920938463463374607431768211455", "level": 1,
+           "difficulty_factor_bps": 9900, "collab_breakdown_count": 0}
+
+
+def response(resource, mode):
+    base = {"schema_version": SCHEMA, "updated_at": "2026-09-19T00:00:00Z"}
+    if mode == "reorg":
+        return 409, {**base, "error": {"code": "STATE_CHANGED"}}
+    if mode == "unavailable":
+        return 503, {**base, "error": {"code": "INDEXER_NOT_READY"}}
+    if resource.startswith("overview"):
+        return 200, {**base, "network": {"name": "USDB Testnet", "chain_id": "202608250", "chain_id_hex": hex(202608250),
+                     "genesis_hash": "0x" + HASH, "bundle_id": "usdb-testnet-v0", "btc_network": "btc-mainnet",
+                     "btc_index_origin_height": 963800, "rpc_urls": ["http://127.0.0.1:28080/rpc"],
+                     "explorer_urls": ["http://127.0.0.1:28080"],
+                     "native_currency": {"name": "USDB", "symbol": "USDB", "decimals": 18}},
+                     "chain": {"height": "215", "hash": "0x" + HASH, "timestamp": "1789776000"},
+                     "explorer": {"status": "ready", "height": "213", "hash": "0x" + HASH},
+                     "indexer": {"status": "ready", "btc_height": 963900, "btc_stable_height": 963901}}
+    if resource.startswith("passes/"):
+        if "b" * 64 in resource:
+            return 404, {**base, "error": {"code": "PASS_NOT_FOUND"}}
+        return 200, {**base, "external_state": STATE, "pass": PROFILE,
+                     "inscription": {"mint_block_height": 963810, "leader_pass_id": None, "leader_btc_addr": None, "prev": []}}
+    return 200, {**base, "external_state": STATE, "total": "0" if mode == "empty" else "2",
+                 "next_cursor": "opaque-cursor" if mode != "empty" and "cursor=" not in resource else None,
+                 "items": [] if mode == "empty" else [PROFILE]}
+
+
+@contextmanager
+def frontend(image):
+    env = {"HOSTNAME": "0.0.0.0", "NEXT_PUBLIC_NETWORK_NAME": "USDB Testnet", "NEXT_PUBLIC_NETWORK_SHORT_NAME": "USDB",
+           "NEXT_PUBLIC_NETWORK_ID": "202608250", "NEXT_PUBLIC_IS_TESTNET": "true", "NEXT_PUBLIC_APP_HOST": "localhost",
+           "NEXT_PUBLIC_APP_PROTOCOL": "http", "NEXT_PUBLIC_API_HOST": "localhost", "NEXT_PUBLIC_API_PROTOCOL": "http",
+           "NEXT_PUBLIC_API_BASE_PATH": "/", "NEXT_PUBLIC_NETWORK_RPC_URL": "http://localhost/rpc",
+           "NEXT_PUBLIC_NETWORK_CURRENCY_NAME": "USDB", "NEXT_PUBLIC_NETWORK_CURRENCY_SYMBOL": "USDB",
+           "NEXT_PUBLIC_NETWORK_CURRENCY_DECIMALS": "18", "NEXT_PUBLIC_HOMEPAGE_CHARTS": "[]",
+           "NEXT_PUBLIC_HOMEPAGE_STATS": "[]", "NEXT_PUBLIC_AD_BANNER_PROVIDER": "none", "NEXT_PUBLIC_AD_TEXT_PROVIDER": "none",
+           "DISABLE_TRACKING": "true", "NEXT_TELEMETRY_DISABLED": "1"}
+    cmd = ["docker", "run", "-d", "--rm", "--memory", "2g", "-p", "127.0.0.1::3000"]
+    for name, value in env.items():
+        cmd.extend(["-e", name + "=" + value])
+    container = subprocess.check_output([*cmd, image], text=True).strip()
+    try:
+        endpoint = subprocess.check_output(["docker", "port", container, "3000"], text=True).strip()
+        url = "http://" + endpoint
+        for _ in range(120):
+            try:
+                with urllib.request.urlopen(url + "/api/healthz", timeout=2) as request:
+                    if request.status == 200:
+                        break
+            except (OSError, urllib.error.HTTPError):
+                time.sleep(1)
+        else:
+            raise RuntimeError(subprocess.check_output(["docker", "logs", container], text=True))
+        yield url
+    finally:
+        subprocess.run(["docker", "stop", "-t", "2", container], check=False, stdout=subprocess.DEVNULL)
+
+
+def exercise(url, output):
+    from playwright.sync_api import sync_playwright, expect
+    mode = {"value": "ready"}
+    requests = []
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        context = browser.new_context(viewport={"width": 1440, "height": 1100}, service_workers="block")
+        def route_request(route):
+            target = route.request.url
+            if "/api/usdb/v1/" in target:
+                resource = target.split("/api/usdb/v1/", 1)[1]
+                requests.append(resource)
+                status, body = response(resource, mode["value"])
+                route.fulfill(status=status, json=body)
+            elif target.startswith(url):
+                route.continue_()
+            else:
+                route.abort()
+        context.route("**/*", route_request)
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(url + "/usdb", wait_until="domcontentloaded")
+        expect(page.get_by_role("heading", name="Network overview", exact=True)).to_be_visible()
+        expect(page.get_by_text("2 blocks behind the observed chain head", exact=True)).to_be_visible()
+        page.get_by_role("button", name="Add network to wallet").click()
+        expect(page.get_by_text("Open this page in a compatible wallet", exact=False)).to_be_visible()
+        page.screenshot(path=str(output / "network-overview.png"), full_page=True)
+        page.locator('[aria-label="USDB link group"]:visible').hover()
+        expect(page.get_by_role("link", name="Miner Passes link", exact=True).first).to_be_visible()
+        page.get_by_role("link", name="Miner Passes link", exact=True).first.click()
+        expect(page.get_by_role("heading", name="Active standard passes")).to_be_visible()
+        expect(page.get_by_role("cell", name="340,282,366,920,938,463,463,374,607,431,768,211,455", exact=True)).to_be_visible()
+        page.get_by_role("button", name="Next page", exact=True).click()
+        expect(page.get_by_role("button", name="First page at this height")).to_be_visible()
+        assert any("height=963900" in r and "state=" + HASH in r and "cursor=opaque-cursor" in r for r in requests)
+        page.get_by_role("link", name="aaaaaaaaaaaa…aaaaaai0", exact=True).click()
+        expect(page.get_by_role("heading", name="Pass details")).to_be_visible()
+        expect(page.get_by_text(PROFILE["usdb_main"], exact=True)).to_be_visible()
+        page.screenshot(path=str(output / "miner-pass.png"), full_page=True)
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.screenshot(path=str(output / "miner-pass-mobile.png"), full_page=True)
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "horizontal page overflow"
+        page.get_by_label("Inscription ID", exact=True).fill("b" * 64 + "i0")
+        page.get_by_role("button", name="Search", exact=True).click()
+        expect(page.locator('section [role="alert"]')).to_contain_text("was not found")
+        mode["value"] = "empty"
+        page.get_by_role("button", name="Latest active passes").click()
+        expect(page.get_by_text("No active standard passes at this Bitcoin height.", exact=True)).to_be_visible()
+        mode["value"] = "unavailable"
+        page.reload(wait_until="domcontentloaded")
+        expect(page.locator('section [role="alert"]')).to_contain_text("catching up or recovering")
+        mode["value"] = "reorg"
+        page.get_by_role("button", name="Retry", exact=True).click()
+        expect(page.locator('section [role="alert"]')).to_contain_text("historical state changed")
+        assert not errors, errors
+        browser.close()
+    print("Frontend browser checks passed: overview, sidebar, detail, precision, pagination, mobile, empty, unavailable, reorg.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--image", required=True)
+    parser.add_argument("--screenshots", type=Path, default=Path(tempfile.gettempdir()) / "usdb-explorer-browser")
+    args = parser.parse_args()
+    args.screenshots.mkdir(parents=True, exist_ok=True)
+    with frontend(args.image) as url:
+        exercise(url, args.screenshots)
+
+
+if __name__ == "__main__":
+    main()

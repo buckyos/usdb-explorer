@@ -37,7 +37,7 @@ class PublicInstallerTests(unittest.TestCase):
 
     def make_release(self, version):
         image = "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32
-        return RELEASE.package(ROOT, self.assets, version, image)
+        return RELEASE.package(ROOT, self.assets, version, image, frontend_image="ghcr.io/buckyos/usdb-explorer-frontend@sha256:" + "cd" * 32)
 
     def run_installer(self, version="0.1.0", *, extra=(), process_substitution=False):
         script = self.assets / ("install-usdb-explorer-v" + version + ".sh")

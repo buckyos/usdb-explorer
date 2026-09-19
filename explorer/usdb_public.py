@@ -126,7 +126,11 @@ def configure(args, *, kit=KIT):
     if args.rpc_url or rpc.get("mode") != "local-node":
         for key in ("read_url", "trace_url", "broadcast_url"):
             rpc[key] = args.rpc_url or "http://127.0.0.1:8545"
+    if rpc.get("mode") != "local-node":
+        rpc["indexer_url"] = "http://127.0.0.1:28020"
     rpc["mode"] = "local-node"
+    if getattr(args, "indexer_url", None):
+        rpc["indexer_url"] = args.indexer_url
     if args.auto_samples:
         rpc.pop("historical_block", None)
         rpc.pop("transaction", None)
@@ -216,6 +220,9 @@ def prepare(config_path, root, *, replace=False, credentials_file=None, kit=KIT)
             shutil.copytree(kit.parent / "gateway", build / "gateway",
                             ignore=shutil.ignore_patterns("*_test.go"))
             shutil.copyfile(kit / "assets/Dockerfile.gateway", build / "Dockerfile.gateway")
+        if lock["images"]["frontend"].get("build_from_source"):
+            shutil.copytree(kit.parent / "frontend", staging / "build/frontend",
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         write_json(staging / "deployment.json", {"schema_version": DEPLOYMENT_SCHEMA,
                    "release_version": version, "state_dir": str(root), "files": file_hashes(staging)})
         # Keep secrets private even when prepare is run with a permissive shell umask.
@@ -388,6 +395,7 @@ def parser():
         if name == "configure":
             action.add_argument("--local-node", action="store_true", required=True, help="Use the node's host loopback RPC")
             action.add_argument("--rpc-url", help="Local HTTP RPC override (default http://127.0.0.1:8545)")
+            action.add_argument("--indexer-url", help="Private local indexer HTTP RPC for Miner Pass views (default http://127.0.0.1:28020)")
             action.add_argument("--auto-samples", action="store_true", help="Remove pinned history/transaction samples; back up the source config before applying")
             action.add_argument("--explorer-url", help="Advertised origin; select bundled ingress and public binding for a non-loopback host")
             action.add_argument("--http-port", type=int, help="Local bundled HTTP port, independent of the advertised port (default 28080)")
@@ -428,8 +436,9 @@ def execute(args, root):
         for warning in report.get("warnings", []):
             print(f"WARNING: {warning}")
         compose(root, ["config", "--quiet"], capture=True, timeout=30)
-        if "build" in document["services"]["gateway"]:
-            compose(root, ["build", "gateway"])
+        builds = [name for name, service in document["services"].items() if "build" in service]
+        if builds:
+            compose(root, ["build", *builds], timeout=3600)
         else:
             compose(root, ["pull"])
         if config["ingress"]["mode"] == "bundled":

@@ -1,0 +1,46 @@
+.root { max-width: 1320px; color: var(--chakra-colors-fg); font-size: 14px; line-height: 1.6; }
+.header { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 28px; }
+.eyebrow { color: #257a86; font-size: 12px; font-weight: 700; letter-spacing: .12em; margin-bottom: 8px; }
+.root h1 { font-size: 30px; font-weight: 700; line-height: 1.25; margin-bottom: 10px; }
+.root h2 { font-size: 18px; font-weight: 600; }
+.header p:not(.eyebrow), .caption, .updated { color: var(--chakra-colors-fg-muted, #667085); }
+.root button { padding: 9px 15px; border: 1px solid var(--chakra-colors-border, #dce2e8); border-radius: 8px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.root button:disabled { opacity: .55; cursor: wait; }
+.root button:hover:not(:disabled) { background: var(--chakra-colors-bg-muted, #f1f5f8); }
+.root button.primary { background: #176b83; border-color: #176b83; color: white; }
+.root button.primary:hover:not(:disabled) { background: #12546a; }
+.root button:focus-visible, .root a:focus-visible, .root input:focus-visible, .root summary:focus-visible { outline: 3px solid #38a7c2; outline-offset: 3px; }
+.actions { display: flex; gap: 10px; align-items: center; margin: 14px 0; flex-wrap: wrap; }
+.cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 18px 0 28px; }
+.cards article, .panel { border: 1px solid var(--chakra-colors-border, #e1e6ec); border-radius: 12px; padding: 22px; }
+.cards h2 { font-size: 13px; font-weight: 500; color: var(--chakra-colors-fg-muted, #667085); }
+.cards strong { display: block; font-size: 26px; margin: 12px 0 5px; overflow-wrap: anywhere; }
+.cards p { font-size: 12px; color: var(--chakra-colors-fg-muted, #667085); }
+.panel h2 { margin-bottom: 18px; }
+.root dl { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 13px 20px; }
+.root dt { color: var(--chakra-colors-fg-muted, #667085); }
+.root dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.root a { color: var(--chakra-colors-link-primary, #217bb5); text-decoration: underline; text-underline-offset: 3px; }
+.notice, .error { padding: 14px 18px; border-radius: 8px; margin: 18px 0; }
+.notice { background: var(--chakra-colors-bg-muted, #f1f5f8); }
+.error { border: 1px solid #db9774; background: color-mix(in srgb, #db9774 10%, transparent); }
+.updated { font-size: 12px; margin-top: 20px; }
+.cta { display: inline-block; margin-top: 8px; font-weight: 600; }
+.search { display: flex; gap: 14px; align-items: flex-end; margin: 22px 0; }
+.search label { display: flex; flex: 1; flex-direction: column; gap: 6px; font-weight: 500; }
+.search .height { flex: 0 0 200px; }
+.search input { width: 100%; padding: 10px 12px; border: 1px solid var(--chakra-colors-border, #dce2e8); border-radius: 8px; background: transparent; min-width: 0; }
+.reference { padding: 14px 18px; background: var(--chakra-colors-bg-muted, #f1f5f8); border-radius: 8px; margin: 16px 0 26px; }
+.reference summary { cursor: pointer; font-weight: 500; }
+.reference dl { margin-top: 16px; font-size: 12px; }
+.sectionHeading { display: flex; align-items: center; justify-content: space-between; margin: 20px 0 10px; gap: 12px; }
+.caption { margin-bottom: 18px; }
+.tableScroll { overflow-x: auto; border: 1px solid var(--chakra-colors-border, #e1e6ec); border-radius: 10px; }
+.root table { width: 100%; border-collapse: collapse; }
+.root th, .root td { text-align: left; padding: 15px 18px; white-space: nowrap; border-bottom: 1px solid var(--chakra-colors-border, #e1e6ec); font-variant-numeric: tabular-nums; }
+.root th { font-size: 12px; background: var(--chakra-colors-bg-muted, #f1f5f8); font-weight: 500; }
+.root tr:last-child td { border-bottom: 0; }
+.badge { display: inline-block; padding: 2px 9px; border-radius: 5px; background: var(--chakra-colors-bg-muted, #f1f5f8); font-size: 12px; }
+.empty { text-align: center; padding: 52px 20px; border: 1px dashed var(--chakra-colors-border, #dce2e8); border-radius: 10px; }
+@media (max-width: 1100px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .header { align-items: flex-start; flex-direction: column; gap: 4px; } }
+@media (max-width: 600px) { .cards { grid-template-columns: 1fr; } .root dl { grid-template-columns: 1fr; gap: 4px; } .root dd { margin-bottom: 12px; } .search { flex-direction: column; align-items: stretch; } .search .height { flex: auto; } .root h1 { font-size: 26px; } }

@@ -189,6 +189,8 @@ type bucket struct {
 }
 type gateway struct {
 	broadcast                  *gateway
+	indexer                    *gateway
+	catalog                    networkCatalog
 	network                    []byte
 	explorerURL                string
 	upstream, chainID, genesis string
@@ -324,6 +326,10 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.explorer(w, r)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/api/usdb/") {
+		g.usdb(w, r)
+		return
+	}
 	if r.URL.Path != "/" && r.URL.Path != "/healthz" {
 		http.NotFound(w, r)
 		return
@@ -429,6 +435,17 @@ func main() {
 		log.Fatal("Invalid public RPC upstream or network identity configuration")
 	}
 	g.explorerURL = "http://backend:4000"
+	if identity := os.Getenv("NETWORK_IDENTITY_JSON"); identity != "" {
+		if json.Unmarshal([]byte(identity), &g.catalog) != nil || !g.catalog.valid(g) {
+			log.Fatal("Invalid USDB public network catalog")
+		}
+	}
+	if upstream := os.Getenv("INDEXER_UPSTREAM"); upstream != "" {
+		g.indexer, err = newGateway(upstream, g.chainID, g.genesis)
+		if err != nil || !g.catalog.valid(g) {
+			log.Fatal("Invalid private USDB indexer configuration")
+		}
+	}
 	if writer := os.Getenv("BROADCAST_UPSTREAM"); writer != "" && writer != g.upstream {
 		g.broadcast, err = newGateway(writer, g.chainID, g.genesis)
 		if err != nil {

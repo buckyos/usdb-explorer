@@ -18,6 +18,7 @@ def make_public_release(root, source, packager, *, structured_notes=False):
         target = repo / "explorer" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source / "explorer" / name, target)
+    shutil.copytree(source / "frontend", repo / "frontend")
     if structured_notes:
         shutil.copytree(source / ".release-notes", repo / ".release-notes")
     commands = (["init", "--initial-branch=main"], ["config", "user.name", "Release fixture"],
@@ -29,10 +30,10 @@ def make_public_release(root, source, packager, *, structured_notes=False):
         subprocess.run(["git", "-C", str(repo), *arguments], check=True, capture_output=True)
     assets = root / "assets"
     with patch.object(packager, "check_network"):
-        packager.package(repo, assets, "0.1.0", "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32)
+        packager.package(repo, assets, "0.1.0", "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32, frontend_image="ghcr.io/buckyos/usdb-explorer-frontend@sha256:" + "cd" * 32)
     if structured_notes:
         import release_notes
-        changes = release_notes.build_changes(repo, "v0.1.0", "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32)
+        changes = release_notes.build_changes(repo, "v0.1.0", "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32, frontend_image="ghcr.io/buckyos/usdb-explorer-frontend@sha256:" + "cd" * 32)
         release_notes.write_release_files(changes, assets, root / "notes.md")
     return repo, assets
 

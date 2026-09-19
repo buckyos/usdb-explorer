@@ -420,3 +420,12 @@ python3 explorer/package_release.py --version 0.2.0 \
 
 未提交的开发包标记 `source_dirty`，不能通过发布校验。所有第三方镜像仍沿用迁移前的
 私有兼容性预览基线；拆仓不改变已完成或未完成的 archive、reorg、钱包及镜像验收。
+
+## USDB 网络概览与矿工证
+
+本分支新增 `/usdb` 与 `/usdb/passes`。同机模式默认通过私有通道访问索引器 `127.0.0.1:28020`；
+可用 `configure --local-node --indexer-url http://127.0.0.1:28020` 修改。external 模式需在源 JSON 的
+`rpc.indexer_url` 显式填写容器可达的私网地址；`null` 表示停用。修改后 down、prepare --replace、up 应用。
+
+使用范围、状态绑定和排错见 [USDB 专页手册](../docs/handbook/usdb-pages.md)。发布包直接拉取本仓库
+构建的 frontend digest；源码部署会额外构建前端，需联网下载冻结的上游源码和依赖。

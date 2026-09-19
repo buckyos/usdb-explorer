@@ -33,6 +33,7 @@ jobs:
         run: go test -race ./...
       - name: Test independent deployment, ingress and packaging
         run: |
+          python3 tests/test_usdb_pages.py
           python3 tests/test_public_services.py
           python3 tests/test_preflight_diagnostics.py
           python3 tests/test_local_deployment.py
@@ -49,3 +50,47 @@ jobs:
           explorer/usdb-public --help
       - name: Exercise optional Nginx routing, HTTPS and reload in isolated containers
         run: python3 tests/test_public_ingress.py
+
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read the frozen Node image
+        id: source
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('node_image=' + json.load(open('explorer/assets/images.lock.json'))['images']['node']['reference'] + '\n')
+          PYTHON
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - name: Verify upstream checksum and build the customized frontend
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: frontend/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: usdb-explorer-frontend:ci
+          build-args: NODE_IMAGE=${{ steps.source.outputs.node_image }}
+          cache-from: type=gha,scope=explorer-frontend
+          cache-to: type=gha,mode=max,scope=explorer-frontend
+      - name: Install the pinned browser test runtime
+        run: |
+          python3 -m venv /tmp/explorer-browser
+          /tmp/explorer-browser/bin/pip install playwright==1.59.0
+          /tmp/explorer-browser/bin/playwright install --with-deps chromium
+      - name: Exercise the production frontend with isolated read-only API fixtures
+        run: /tmp/explorer-browser/bin/python tests/test_frontend_browser.py --image usdb-explorer-frontend:ci
+      - name: Retain frontend screenshots
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: explorer-frontend-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/usdb-explorer-browser/
+          if-no-files-found: ignore
+          retention-days: 7

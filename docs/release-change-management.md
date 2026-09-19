@@ -22,7 +22,7 @@ Build 选择在该构建启动时已经发布、版本号低于本版的最高 E
 没有已发布版本时按首发处理，纳入当前全部 fragment 和 Git history，不假设已有兼容性证据。
 
 所有内容从 tag 对应 Git objects 读取，不读取未提交的工作区文件。构建冻结前版 tag object、
-前后 revision、fragment、完整 commit inventory、gateway digest、兼容性输入和覆盖率，生成：
+前后 revision、fragment、完整 commit inventory、gateway/frontend digest、兼容性输入和覆盖率，生成：
 
 - `release-changes.json`
 - `release-changes.json.sha256`
@@ -40,8 +40,8 @@ GitHub Release 正文合并变更、升级操作、兼容性证据、提交范�
 | --- | --- |
 | 网络 bundle、chain/network ID、genesis block hash、BTC 网络/起点/registry | `network_reset` |
 | RPC contract、配置 schema、deployment schema | `config_change` |
-| 固定运行时镜像 reference、gateway 源码或 Dockerfile | `restart_required` |
-| Go 构建镜像 reference（提供 gateway 二进制和运行时 CA 证书） | `restart_required` |
+| 固定运行时镜像 reference、gateway/frontend 源码、上游锁或 Dockerfile | `restart_required` |
+| Go/Node 构建镜像 reference（提供 gateway 二进制和运行时 CA 证书） | `restart_required` |
 
 分类优先级为 network reset → data rebuild → config change → restart → in place，保留全部并列 flags。
 首次发版没有前版可比较。自动比较不等于完整兼容性验收：外部数据库 layout、浏览器语义及实际升级

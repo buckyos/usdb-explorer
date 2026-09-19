@@ -26,6 +26,7 @@
 | 参数或字段 | 含义与影响 |
 | --- | --- |
 | `configure --local-node` | 设置 `rpc.mode=local-node`；保留现有同机 RPC 地址，首次切换时使用默认 loopback 地址；不会启用节点的 archive/tracing |
+| `--indexer-url` / `rpc.indexer_url` | 私有矿工证索引器地址；同机默认 HTTP loopback 28020，external 需显式设置；详见 [USDB 专页](usdb-pages.md#接入索引器) |
 | `--rpc-url` | 同时设置同机 read/trace/broadcast RPC，必须是 HTTP loopback 地址；不改变浏览器入口 |
 | `--explorer-url` / `ingress.explorer_url` | **访问者实际使用的 HTTP(S) origin**，包括外部端口；用于前端 API 地址、页面地址、钱包 `/rpc` 元数据和入口域名/HTTPS 跳转 |
 | `--http-port` / `ingress.http_port` | **宿主机**发布的 bundled HTTP 端口，默认 28080，转到 Nginx 容器的 8080；HTTPS 模式下用于重定向 |

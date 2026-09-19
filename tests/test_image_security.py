@@ -2,6 +2,7 @@
 """Verify advisory findings never weaken immutable identity or evidence checks."""
 from copy import deepcopy
 import json
+import shutil
 import os
 from pathlib import Path
 import subprocess
@@ -15,32 +16,56 @@ import image_security as SECURITY
 from common.image_security import trivy_report, trivy_sarif
 
 REVISION = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip()
+FRONTEND = "ghcr.io/buckyos/usdb-explorer-frontend@sha256:" + "cd" * 32
 GATEWAY = "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32
 
 
 class ImageSecurityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        temporary = tempfile.TemporaryDirectory(prefix="explorer-image-security-")
+        cls.addClassCleanup(temporary.cleanup)
+        cls.repo = Path(temporary.name) / "repo"
+        shutil.copytree(ROOT / "explorer", cls.repo / "explorer", ignore=shutil.ignore_patterns("__pycache__"))
+        for args in (["init", "-q"], ["add", "."], ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                     "-c", "commit.gpgsign=false", "commit", "-qm", "Freeze security fixture"]):
+            subprocess.run(["git", "-C", str(cls.repo), *args], check=True)
+        cls.revision = subprocess.check_output(["git", "-C", str(cls.repo), "rev-parse", "HEAD"], text=True).strip()
+
     def identity(self, name="gateway", mode="report-only"):
-        reference = GATEWAY if name == "gateway" else SECURITY.image_lock(ROOT / "explorer")["images"][name]["reference"]
-        return SECURITY.scan_input(ROOT, name, reference, REVISION, mode)
+        reference = GATEWAY if name == "gateway" else FRONTEND if name == "frontend" else SECURITY.image_lock(self.repo / "explorer")["images"][name]["reference"]
+        return SECURITY.scan_input(self.repo, name, reference, self.revision, mode)
 
     def test_complete_plan_uses_pinned_lock_and_testnet_default(self):
-        plan = SECURITY.scan_plan(ROOT, GATEWAY)
+        plan = SECURITY.scan_plan(self.repo, GATEWAY, frontend_image=FRONTEND)
         self.assertEqual({item["name"] for item in plan["include"]},
-                         {"gateway", "backend", "frontend", "postgres", "redis", "nginx", "go"})
+                         {"gateway", "backend", "frontend", "postgres", "redis", "nginx", "go", "node"})
         for item in plan["include"]:
             self.assertEqual(item["enforcement"], "report-only")
             self.identity(item["name"])
-        strict = SECURITY.scan_plan(ROOT, GATEWAY, "strict")
+        strict = SECURITY.scan_plan(self.repo, GATEWAY, "strict", FRONTEND)
         self.assertTrue(all(item["enforcement"] == "strict" for item in strict["include"]))
 
     def test_mutable_or_foreign_gateway_and_wrong_source_are_rejected(self):
         for reference in (GATEWAY.replace("@sha256:", ":"), GATEWAY.replace("buckyos", "other")):
             with self.subTest(reference=reference), self.assertRaises(ValueError):
-                SECURITY.scan_plan(ROOT, reference)
+                SECURITY.scan_plan(self.repo, reference)
         with self.assertRaisesRegex(ValueError, "source revision"):
-            SECURITY.scan_input(ROOT, "gateway", GATEWAY, "f" * 40, "report-only")
+            SECURITY.scan_input(self.repo, "gateway", GATEWAY, "f" * 40, "report-only")
         with self.assertRaisesRegex(ValueError, "selected source lock"):
-            SECURITY.scan_input(ROOT, "redis", GATEWAY, REVISION, "report-only")
+            SECURITY.scan_input(self.repo, "redis", GATEWAY, self.revision, "report-only")
+
+    def test_custom_frontend_requires_immutable_identity_and_source_label(self):
+        for reference in (None, "ghcr.io/buckyos/usdb-explorer-frontend:latest", GATEWAY):
+            with self.subTest(reference=reference), self.assertRaisesRegex(ValueError, "frontend"):
+                SECURITY.scan_plan(self.repo, GATEWAY, frontend_image=reference)
+        identity = self.identity("frontend")
+        self.assertEqual(identity["image_source_revision"], self.revision)
+        report = trivy_report(FRONTEND, self.revision, "frontend")
+        self.assertEqual(SECURITY.evaluate(report, identity)["result"], "pass")
+        report["Metadata"]["ImageConfig"]["config"]["Labels"] = {}
+        with self.assertRaisesRegex(ValueError, "source revision"):
+            SECURITY.evaluate(report, identity)
 
     def test_mainnet_cannot_inherit_testnet_report_only(self):
         self.assertEqual(SECURITY.security_enforcement("usdb-mainnet-v1"), "strict")
@@ -51,18 +76,18 @@ class ImageSecurityTests(unittest.TestCase):
     def test_uncommitted_lock_cannot_be_attributed_to_a_published_source_commit(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary) / "source"
-            subprocess.run(["git", "clone", "--quiet", "--local", "--no-hardlinks", str(ROOT), str(repo)], check=True)
+            subprocess.run(["git", "clone", "--quiet", "--local", "--no-hardlinks", str(self.repo), str(repo)], check=True)
             lock_path = repo / "explorer/assets/images.lock.json"
             value = json.loads(lock_path.read_text())
             value["images"]["redis"]["reference"] = value["images"]["redis"]["reference"].split("@")[0] + "@sha256:" + "e" * 64
             lock_path.write_text(json.dumps(value))
             with self.assertRaisesRegex(ValueError, "inputs differ from the selected source commit"):
-                SECURITY.scan_input(repo, "redis", value["images"]["redis"]["reference"], REVISION, "report-only")
+                SECURITY.scan_input(repo, "redis", value["images"]["redis"]["reference"], self.revision, "report-only")
 
     def test_same_findings_are_recorded_in_both_modes_without_acceptance(self):
         for mode in ("report-only", "strict"):
             with self.subTest(mode=mode):
-                decision = SECURITY.evaluate(trivy_report(GATEWAY, REVISION), self.identity(mode=mode))
+                decision = SECURITY.evaluate(trivy_report(GATEWAY, self.revision), self.identity(mode=mode))
                 self.assertEqual(decision["accepted_count"], 0)
                 self.assertEqual(decision["unresolved_count"], 1)
                 self.assertEqual(decision["raw_counts"]["HIGH"], 1)
@@ -70,7 +95,7 @@ class ImageSecurityTests(unittest.TestCase):
                 self.assertEqual(decision["result"], "pass" if mode == "report-only" else "fail")
 
     def test_wrong_digest_platform_revision_or_missing_coverage_block_report_only(self):
-        original = trivy_report(GATEWAY, REVISION)
+        original = trivy_report(GATEWAY, self.revision)
         changed = []
         value = deepcopy(original)
         value["ArtifactName"] = GATEWAY.replace("ab", "cd")
@@ -105,7 +130,7 @@ class ImageSecurityTests(unittest.TestCase):
     def test_malformed_reports_and_unknown_severities_are_errors_in_both_modes(self):
         for mode in ("report-only", "strict"):
             for key, value in (("Severity", "hidden"), ("PkgName", ""), ("InstalledVersion", None)):
-                report = trivy_report(GATEWAY, REVISION)
+                report = trivy_report(GATEWAY, self.revision)
                 report["Results"][0]["Vulnerabilities"][0][key] = value
                 with self.subTest(mode=mode, key=key), self.assertRaises(ValueError):
                     SECURITY.evaluate(report, self.identity(mode=mode))
@@ -115,7 +140,7 @@ class ImageSecurityTests(unittest.TestCase):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 identity = self.identity(mode=mode)
-                for name, value in (("scan-input.json", identity), ("trivy-image.json", trivy_report(GATEWAY, REVISION)),
+                for name, value in (("scan-input.json", identity), ("trivy-image.json", trivy_report(GATEWAY, self.revision)),
                                     ("trivy-image.sarif", trivy_sarif())):
                     (root / name).write_text(json.dumps(value))
                 metadata = SECURITY.write_evidence(root, identity, "Version: 0.74.0")
@@ -130,7 +155,7 @@ class ImageSecurityTests(unittest.TestCase):
     def test_corrupt_sarif_never_produces_success_metadata(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            (root / "trivy-image.json").write_text(json.dumps(trivy_report(GATEWAY, REVISION)))
+            (root / "trivy-image.json").write_text(json.dumps(trivy_report(GATEWAY, self.revision)))
             (root / "trivy-image.sarif").write_text("{}")
             with self.assertRaisesRegex(ValueError, "SARIF"):
                 SECURITY.write_evidence(root, self.identity(), "Version: 0.74.0")

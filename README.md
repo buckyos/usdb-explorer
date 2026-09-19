@@ -26,6 +26,7 @@ explorer/usdb-explorer prepare --config /path/to/config.json --state-dir /path/t
 | 目录 | 内容 |
 | --- | --- |
 | `explorer/` | 部署控制、安装器、网络 catalog/contract、第三方镜像 lock |
+| `frontend/` | 固定 Blockscout 源码上的 USDB 导航、网络概览和矿工证查询；独立构建与镜像发布 |
 | `gateway/` | 独立 Go module：公共 RPC 策略与浏览器 API 适配 |
 | `scripts/prepare_release.py` | 本仓库的 annotated tag 准备工具 |
 | `.github/workflows/` | 独立 CI、构建草稿、手动 Publish |

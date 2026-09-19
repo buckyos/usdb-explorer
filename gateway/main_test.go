@@ -16,6 +16,7 @@ func request(method string, params string) string {
 
 func TestPolicyRejectsDangerousAndAmbiguousRequests(t *testing.T) {
 	for _, body := range []string{
+		request("get_candidate_set_view", "[]"), request("get_pass_snapshot", "[]"), request("stop", "[]"),
 		request("admin_addPeer", "[]"), request("miner_stop", "[]"), request("debug_traceTransaction", "[]"),
 		request("eth_sendTransaction", "[]"), request("eth_sign", "[]"),
 		`{"jsonrpc":"2.0","id":1,"method":"eth_chainId","method":"miner_stop","params":[]}`,

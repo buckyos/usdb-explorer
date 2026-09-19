@@ -94,7 +94,7 @@ def resolve_build(pages, release_id, revision):
     return runs[0]
 
 
-def verify_payload(directory, release_id, revision, read_source):
+def verify_payload(directory, release_id, revision, read_source, *, images_out=None):
     """Check checksums, clean source identity and installer binding without running assets."""
     archive = directory / (release_id + ".tar.gz")
     installer = directory / ("install-" + release_id + ".sh")
@@ -116,6 +116,16 @@ def verify_payload(directory, release_id, revision, read_source):
         if (gateway.get("tag") != release_id.removeprefix("usdb-explorer-") or not re.fullmatch(
                 r"ghcr\.io/buckyos/usdb-explorer-gateway@sha256:[0-9a-f]{64}", gateway.get("reference", ""))):
             raise ValueError("release gateway image is not pinned to a public gateway digest")
+        if source_lock["images"]["frontend"].get("build_from_source"):
+            frontend = lock["images"].get("frontend", {})
+            if (frontend.get("tag") != release_id.removeprefix("usdb-explorer-") or not re.fullmatch(
+                    r"ghcr\.io/buckyos/usdb-explorer-frontend@sha256:[0-9a-f]{64}", frontend.get("reference", ""))
+                    or frontend.get("upstream") != source_lock["images"]["frontend"]
+                    or set(frontend) != {"tag", "reference", "upstream"}):
+                raise ValueError("release frontend image differs from pinned source or build identity")
+            source_lock["images"]["frontend"] = frontend
+            if images_out is not None:
+                images_out["frontend"] = frontend["reference"]
         source_lock["images"]["gateway"] = gateway
         if lock != source_lock or manifest.get("qualified_for_public_exposure") != lock.get("qualified_for_public_exposure"):
             raise ValueError("release image lock or qualification differs from tagged source")
@@ -173,12 +183,13 @@ def inspect_release(api, repo, release_id, *, expected_source_revision=None):
             api.download(asset["id"], path)
             if path.stat().st_size != asset["size"] or "sha256:" + sha256(path) != asset["digest"]:
                 raise ValueError(f"downloaded release asset differs from GitHub metadata: {asset['name']}")
+        built_images = {}
         gateway = verify_payload(directory, "usdb-explorer-" + release_id, revision,
-                                 lambda name: git(repo, "show", f"{revision}:explorer/{name}"))
+                                 lambda name: git(repo, "show", f"{revision}:explorer/{name}"), images_out=built_images)
         if structured_notes:
             previous = RELEASE_NOTES.previous_published(api, repo, release_id, published_before=run["created_at"])
             RELEASE_NOTES.validate_release_files(repo, release_id, gateway, directory, release.get("body"),
-                                                 expected_previous=previous)
+                                                 expected_previous=previous, frontend_image=built_images.get("frontend"))
     snapshot = {"release_id": release_id, "release_database_id": release["id"],
                 "tag_object": tag_object, "source_revision": revision,
                 "build_run_id": run["id"], "build_run_attempt": run["run_attempt"],

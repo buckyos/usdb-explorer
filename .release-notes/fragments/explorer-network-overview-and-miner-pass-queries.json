@@ -1,0 +1,26 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-network-overview-and-miner-pass-queries",
+  "type": "added",
+  "scopes": ["explorer", "gateway", "deployment", "release", "documentation"],
+  "summary": "Add USDB network overview and historical Miner Pass queries",
+  "details": [
+    "Add a USDB navigation group to the pinned Blockscout frontend, with separate USDB, explorer and Bitcoin index heights, public wallet metadata, an active Standard pass list and inscription-ID detail queries.",
+    "Keep energy values as exact decimal integers and bind pagination, pass profiles and related snapshots to one Bitcoin height and historical system state; distinguish empty results, missing passes, incompatible or unavailable indexers and state changes.",
+    "Expose only bounded GET endpoints through the public gateway. Local-node deployments default to the private loopback indexer at port 28020; external deployments require an explicit private indexer_url. Existing full-mode archive and tracing requirements remain in force.",
+    "Build the customized frontend from a checksum-verified upstream revision and bind its immutable image digest to packaging, release notes, publication verification and image security scans. Source deployments build the frontend locally; release installations pull the prebuilt image.",
+    "Reward, supply, fee-distribution and realtime-push qualification remain unchanged; faucet, minting and signing are outside this change."
+  ],
+  "operator_actions": [
+    "After installing a release containing this change, run down, prepare --replace, preflight and up to replace frontend/gateway and apply the private indexer route while retaining credentials and database volumes.",
+    "For external RPC deployments, configure rpc.indexer_url with the container-reachable private indexer URL to enable Miner Pass data. For a nondefault local indexer port, use configure --local-node --indexer-url before re-preparing.",
+    "Verify the USDB overview and Miner Pass page after startup; an unavailable indexer does not mean there are no passes."
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": true
+  },
+  "references": []
+}

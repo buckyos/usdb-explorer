@@ -16,6 +16,7 @@ import package_release as PACKAGE
 import publish_release as PUBLISH
 from common.public_release import PublicReleaseAPI, make_public_release
 
+FRONTEND = "ghcr.io/buckyos/usdb-explorer-frontend@sha256:" + "cd" * 32
 GATEWAY = "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32
 
 
@@ -44,7 +45,7 @@ class ReleaseNotesTests(unittest.TestCase):
 
     def release(self, tag="v0.2.0", *, previous=True):
         self.git("-c", "tag.gpgsign=false", "tag", "-a", tag, "-m", "Freeze fixture")
-        return NOTES.build_changes(self.repo, tag, GATEWAY, previous=self.previous if previous else None)
+        return NOTES.build_changes(self.repo, tag, GATEWAY, frontend_image=FRONTEND, previous=self.previous if previous else None)
 
     def test_fragment_schema_matches_usdb_fields_and_rejects_invalid_values(self):
         _, original = self.fragment()
@@ -66,7 +67,7 @@ class ReleaseNotesTests(unittest.TestCase):
             NOTES.load_json_bytes(b'{"summary":"a","summary":"b"}', "fixture")
 
     def test_initial_release_has_full_inventory_and_no_invented_previous_evidence(self):
-        changes = NOTES.build_changes(self.repo, "v0.1.0", GATEWAY)
+        changes = NOTES.build_changes(self.repo, "v0.1.0", GATEWAY, frontend_image=FRONTEND)
         self.assertIsNone(changes["previous_release"])
         self.assertIsNone(changes["previous_source_inputs"])
         self.assertEqual(changes["coverage"]["unclassified"], 1)
@@ -96,7 +97,7 @@ class ReleaseNotesTests(unittest.TestCase):
         self.commit()
         changes = self.release()
         self.fragment()
-        self.assertEqual(NOTES.build_changes(self.repo, "v0.2.0", GATEWAY, previous=self.previous), changes)
+        self.assertEqual(NOTES.build_changes(self.repo, "v0.2.0", GATEWAY, frontend_image=FRONTEND, previous=self.previous), changes)
 
     def test_published_fragment_edit_delete_and_rename_are_rejected(self):
         original = next((self.repo / NOTES.FRAGMENT_PATH_PREFIX).glob("*.json"))
@@ -152,7 +153,7 @@ class ReleaseNotesTests(unittest.TestCase):
         body = self.root / "new-notes.md"
         NOTES.write_release_files(changes, output, body)
         with self.assertRaisesRegex(ValueError, "wrong published boundary"):
-            NOTES.validate_release_files(self.repo, "v0.2.0", GATEWAY, output, body.read_text(), expected_previous=None)
+            NOTES.validate_release_files(self.repo, "v0.2.0", GATEWAY, output, body.read_text(), expected_previous=None, frontend_image=FRONTEND)
 
     def test_moved_previous_tag_and_nonancestor_range_fail(self):
         self.commit()
@@ -200,16 +201,16 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertTrue(changes["compatibility"]["flags"]["restart_required"])
 
     def test_existing_outputs_cannot_be_overwritten_and_render_is_deterministic(self):
-        changes = NOTES.build_changes(self.repo, "v0.1.0", GATEWAY)
+        changes = NOTES.build_changes(self.repo, "v0.1.0", GATEWAY, frontend_image=FRONTEND)
         body = (self.root / "notes.md").read_text()
-        self.assertEqual(NOTES.validate_release_files(self.repo, "v0.1.0", GATEWAY, self.assets, body), changes)
+        self.assertEqual(NOTES.validate_release_files(self.repo, "v0.1.0", GATEWAY, self.assets, body, frontend_image=FRONTEND), changes)
         with self.assertRaisesRegex(ValueError, "already exists"):
             NOTES.write_release_files(changes, self.assets, self.root / "notes.md")
 
     def test_build_cli_uses_the_tag_build_and_validates_its_generated_files(self):
         api = PublicReleaseAPI(self.repo, self.assets)
         output, body = self.root / "cli-assets", self.root / "cli-notes.md"
-        arguments = ["--repository-root", str(self.repo), "--release-id", "v0.1.0", "--gateway-image", GATEWAY,
+        arguments = ["--repository-root", str(self.repo), "--release-id", "v0.1.0", "--gateway-image", GATEWAY, "--frontend-image", FRONTEND,
                      "--output-dir", str(output), "--notes", str(body)]
         with patch.object(PUBLISH, "GitHub", return_value=api), patch.dict(os.environ, {"GITHUB_RUN_ID": "101"}):
             with patch.object(sys, "argv", ["release_notes.py", "generate", *arguments]):

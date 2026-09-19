@@ -17,6 +17,7 @@ from network_contract import check_network
 from public_config import DIGEST_IMAGE, image_lock, read_json, security_enforcement
 
 SEVERITIES = {"UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"}
+FRONTEND = re.compile(r"ghcr\.io/buckyos/usdb-explorer-frontend@sha256:[0-9a-f]{64}")
 GATEWAY = re.compile(r"ghcr\.io/buckyos/usdb-explorer-gateway@sha256:[0-9a-f]{64}")
 
 
@@ -30,13 +31,18 @@ def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def scan_plan(repo, gateway_image, enforcement=None):
-    """Scan the gateway, all locked runtime images and the frozen Go build image."""
+def scan_plan(repo, gateway_image, enforcement=None, frontend_image=None):
+    """Scan both first-party images, all runtime dependencies and frozen Go/Node build images."""
     require(GATEWAY.fullmatch(gateway_image), "expected an immutable usdb-explorer-gateway image")
     check_network(repo)
     network = read_json(repo / "explorer/networks/usdb-testnet-v0.json")["bundle_id"]
     mode = security_enforcement(network, enforcement)
     images = image_lock(repo / "explorer")["images"]
+    if images["frontend"].get("build_from_source"):
+        require(FRONTEND.fullmatch(frontend_image or ""), "expected an immutable usdb-explorer-frontend image")
+        images["frontend"] = {"reference": frontend_image}
+    elif frontend_image is not None:
+        raise ValueError("custom frontend is not supported by this source lock")
     images["gateway"] = {"reference": gateway_image}
     return {"include": [{"name": name, "image_reference": item["reference"], "enforcement": mode}
                         for name, item in sorted(images.items())]}
@@ -52,13 +58,15 @@ def scan_input(repo, name, reference, revision, enforcement):
         committed = subprocess.check_output(["git", "-C", str(repo), "show", f"{revision}:{path}"])
         require((repo / path).read_bytes() == committed, "scan inputs differ from the selected source commit")
     gateway = reference if name == "gateway" else "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "0" * 64
-    plan = scan_plan(repo, gateway, enforcement)
+    custom_frontend = image_lock(repo / "explorer")["images"]["frontend"].get("build_from_source")
+    frontend = (reference if name == "frontend" else "ghcr.io/buckyos/usdb-explorer-frontend@sha256:" + "0" * 64) if custom_frontend else None
+    plan = scan_plan(repo, gateway, enforcement, frontend)
     require(any(row["name"] == name and row["image_reference"] == reference for row in plan["include"]),
             "scan image differs from the selected source lock")
     return {"name": name, "image_reference": reference, "platform": "linux/amd64",
             "enforcement": enforcement, "network": "usdb-testnet-v0",
             "explorer_source_revision": revision,
-            "image_source_revision": revision if name == "gateway" else None,
+            "image_source_revision": revision if name == "gateway" or (name == "frontend" and custom_frontend) else None,
             "image_lock_sha256": sha256(repo / "explorer/assets/images.lock.json"),
             "network_contract_sha256": sha256(repo / "explorer/networks/usdb-testnet-v0.contract.json")}
 
@@ -93,7 +101,7 @@ def evaluate(report, identity):
     if identity["image_source_revision"] is not None:
         labels = config.get("config", {}).get("Labels", {})
         require(labels.get("org.opencontainers.image.revision") == identity["image_source_revision"],
-                "gateway image source revision mismatch")
+                "first-party image source revision mismatch")
     targets = report.get("Results")
     require(isinstance(targets, list) and targets, "report has no scan targets")
     counts, unresolved = Counter({level: 0 for level in SEVERITIES}), []
@@ -150,6 +158,7 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan")
     plan.add_argument("--gateway-image", required=True)
+    plan.add_argument("--frontend-image")
     plan.add_argument("--enforcement", choices=("strict", "report-only"))
     validate = sub.add_parser("validate")
     validate.add_argument("--name", required=True)
@@ -165,7 +174,7 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == "plan":
-            value = json.dumps(scan_plan(ROOT, args.gateway_image, args.enforcement), separators=(",", ":"))
+            value = json.dumps(scan_plan(ROOT, args.gateway_image, args.enforcement, args.frontend_image), separators=(",", ":"))
             print(value)
             if output := os.environ.get("GITHUB_OUTPUT"):
                 with open(output, "a") as destination:

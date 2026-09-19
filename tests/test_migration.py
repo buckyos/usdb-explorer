@@ -62,7 +62,7 @@ class MigrationTests(unittest.TestCase):
         before_compose = json.loads((self.state / "compose.json").read_bytes())
         marker = self.root / "existing-database-marker"
         marker.write_bytes(b"existing operator data")
-        PACKAGE.package(ROOT, self.assets, "0.2.0", "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32)
+        PACKAGE.package(ROOT, self.assets, "0.2.0", "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32, frontend_image="ghcr.io/buckyos/usdb-explorer-frontend@sha256:" + "cd" * 32)
         self.run_command("bash", str(self.assets / "install-usdb-explorer-v0.2.0.sh"), *self.install_options)
         self.assertEqual(os.readlink(self.storage / "current"), "releases/usdb-explorer-v0.2.0")
         self.assertTrue((self.storage / "releases/usdb-public-v0.1.0").is_dir())
