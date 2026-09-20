@@ -21,6 +21,10 @@ Bitcoin 侧的矿工证铭刻费用。
 
 ## 启用和额度
 
+推荐运行 `usdb-explorer setup`，在 `Enable testnet faucet` 选择 `y`，设置单次金额和每日预算，
+需要时继续调整冷却、IP 限额和手续费策略。再次运行可修改或关闭水龙头；操作说明见
+[交互式 setup](setup.md)。向导只保存配置，不收集 miner 私钥，补款仍使用独立 `faucet fund` 命令。
+
 以下金额只是配置示例，应按账户余额和测试操作所需费用调整：
 
 ```bash

@@ -29,6 +29,11 @@
 
 ## 1. 安装与初始配置
 
+安装后或修改配置时，推荐运行 `usdb-explorer setup`：交互设置节点连接、内置/外部 Nginx、
+访问 URL、HTTP/HTTPS 端口、已有证书目录及水龙头。保存前校验并展示摘要，已有配置会备份，
+最后打印应用配置的命令。完整流程见[交互式 setup](../docs/handbook/setup.md)。
+`configure`、`faucet configure` 和源 JSON 配置方式继续支持。
+
 目标环境：Linux amd64、Python 3.11+、Docker Engine 25+、Docker Compose v2+。
 独立机器建议至少 8 GiB 内存作为低并发预览起点；默认公共服务预算 6 GiB，不包含上游 archive。
 磁盘需求会随着 Blockscout 索引数据增长，应单独监控，不能沿用 USDB 节点快照大小估算。

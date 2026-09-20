@@ -383,7 +383,7 @@ def parser():
     actions = result.add_subparsers(dest="command", required=True)
     from faucet_cli import add_parser
     add_parser(actions)
-    for name in ("configure", "prepare", "up", "down", "status", "check", "preflight", "logs", "reload-proxy"):
+    for name in ("setup", "configure", "prepare", "up", "down", "status", "check", "preflight", "logs", "reload-proxy"):
         action = actions.add_parser(name)
         action.add_argument("--state-dir", type=Path, default=Path.home() / ".config/usdb-public/default",
                             help="Private deployment directory, independent of node.env")
@@ -391,7 +391,7 @@ def parser():
             action.add_argument("--json", dest="json_output", action="store_true", help="Print only a JSON report; exit 0 for ready/passed, 1 for failure")
         if name == "check":
             action.add_argument("--url", help="Check an explicit Explorer origin without changing the configured visitor URL")
-        if name in {"configure", "prepare"}:
+        if name in {"setup", "configure", "prepare"}:
             action.add_argument("--config", type=Path, default=Path.home() / ".config/usdb-public/config.json",
                                 help="Operator-owned configuration (default ~/.config/usdb-public/config.json)")
         if name == "configure":
@@ -411,6 +411,9 @@ def parser():
 
 
 def execute(args, root):
+    if args.command == "setup":
+        from public_setup import setup
+        return setup(args, root, kit=KIT)
     if args.command == "faucet":
         from faucet_cli import execute as faucet_execute
         return faucet_execute(args, root)
@@ -475,6 +478,11 @@ def main(argv=None):
     args = parser().parse_args(argv)
     try:
         root = safe_directory(args.state_dir)
+        if args.command == "setup":
+            if not sys.stdin.isatty() or not sys.stdout.isatty():
+                raise ValueError("setup requires an interactive terminal; use configure and faucet configure for automation, or edit the source JSON for advanced ingress settings")
+            with operation_lock(safe_directory(args.config)), operation_lock(root):
+                return execute(args, root)
         if args.command == "configure" or (args.command == "faucet" and args.faucet_command == "configure"):
             with operation_lock(safe_directory(args.config)):
                 return execute(args, root)

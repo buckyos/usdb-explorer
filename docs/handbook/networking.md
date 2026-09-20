@@ -42,7 +42,9 @@
 
 当前 `configure` 是同机部署的快捷命令，要求 `--local-node`；提供 `--explorer-url` 时还会选择
 `ingress.mode=bundled`。它不是通用模式编辑器，没有 `--bundled`、`--external`、`--https-port`
-或证书参数。使用 external ingress 时直接编辑源 JSON，避免用该快捷命令意外切回 bundled。
+或证书参数。通用交互配置请运行 `usdb-explorer setup`，支持两种 RPC/入口模式、HTTPS 端口和
+证书目录，见[交互式 setup](setup.md)。使用 external ingress 时选择 setup 或编辑源 JSON，
+避免用该快捷命令意外切回 bundled。
 
 ## 使用域名和 HTTP
 
@@ -59,8 +61,9 @@ usdb-explorer configure --local-node --explorer-url "$explorer_url" --http-port 
 
 ## 内置 Nginx 提供 HTTPS
 
-首次开启 bundled HTTPS 时，不能只执行 `configure --explorer-url https://...`：校验还要求
-已有证书目录，而当前 CLI 没有证书参数。备份 `~/.config/usdb-public/config.json` 后，
+首次开启 bundled HTTPS 时，运行 `usdb-explorer setup`，选择 bundled 并填写 HTTPS URL，
+向导会继续询问本机 HTTP/HTTPS 端口与已有证书目录。不能只执行 `configure --explorer-url https://...`，
+因为该快捷命令没有证书选项。也可以备份 `~/.config/usdb-public/config.json` 后，
 只修改其中的 `ingress` 对象，保留 `rpc`、`deployment_id`、网络和资源配置。
 以下是字段示例，域名和证书路径必须替换为实际值，不要把片段覆盖到整个配置文件：
 

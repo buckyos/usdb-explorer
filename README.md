@@ -14,6 +14,7 @@ USDB 区块浏览器与公共 RPC 接入服务。包含 Blockscout 集成、USDB
 
 ```bash
 explorer/usdb-explorer --help
+explorer/usdb-explorer setup --config /path/to/config.json --state-dir /path/to/deployment
 explorer/usdb-explorer prepare --config /path/to/config.json --state-dir /path/to/deployment
 ```
 

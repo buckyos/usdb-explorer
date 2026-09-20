@@ -182,9 +182,14 @@ def install(archive, release_id, expected_sha256, install_root, bin_dir, config_
     print(f"Configuration (existing settings preserved): {config_file}")
     if str(bin_dir) not in os.environ.get("PATH", "").split(os.pathsep):
         print("Add the command to this shell: export PATH=" + shlex.quote(str(bin_dir)) + ':"$PATH"')
-    print("Edit the upstream RPC and ingress settings, then run:")
-    print("  " + shlex.quote(str(primary_launcher)) + " prepare --config " + shlex.quote(str(config_file)))
-    print("For an existing prepared deployment, use down, prepare --replace, then up.")
+    if (destination / "public_setup.py").is_file():
+        print("Configure node connection, Nginx ingress and the optional faucet interactively:")
+        print("  " + shlex.quote(str(primary_launcher)) + " setup --config " + shlex.quote(str(config_file)))
+        print("Setup can be rerun to change settings; it prints the commands to prepare and start your deployment.")
+    else:
+        print("Edit the upstream RPC and ingress settings, then run:")
+        print("  " + shlex.quote(str(primary_launcher)) + " prepare --config " + shlex.quote(str(config_file)))
+        print("For an existing prepared deployment, use down, prepare --replace, then up.")
     print("Installation does not start or restart containers, or change node configuration.")
 
 

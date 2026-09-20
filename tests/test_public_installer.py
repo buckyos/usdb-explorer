@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import pty
 import subprocess
 import sys
 import tarfile
@@ -82,6 +83,44 @@ class PublicInstallerTests(unittest.TestCase):
         self.assertEqual(document["services"]["proxy"]["ports"], ["0.0.0.0:28080:8080"])
         self.assertNotIn("build", document["services"]["gateway"])
         self.assertTrue((state / "rpc-host.conf").is_file())
+
+    def test_installed_setup_runs_in_a_terminal_and_saves_reviewed_defaults(self):
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(" setup --config ", result.stdout)
+        state = self.root / "setup-state"
+        master, slave = pty.openpty()
+        try:
+            with subprocess.Popen([str(self.commands / "usdb-explorer"), "setup", "--config", str(self.config),
+                                   "--state-dir", str(state)], env=self.env, stdin=slave, stdout=slave, stderr=slave) as command:
+                os.close(slave)
+                slave = None
+                os.write(master, b"\n" * 8)
+                try:
+                    command.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    command.kill()
+                    command.wait()
+                    self.fail("installed wizard did not complete")
+                output = b""
+                while True:
+                    try:
+                        chunk = os.read(master, 65536)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    output += chunk
+                self.assertEqual(command.returncode, 0, output.decode())
+                self.assertIn(b"Configuration saved:", output)
+        finally:
+            os.close(master)
+            if slave is not None:
+                os.close(slave)
+        config = json.loads(self.config.read_text())
+        self.assertEqual(config["rpc"]["mode"], "local-node")
+        self.assertFalse(config["faucet"]["enabled"])
+        self.assertFalse(state.exists())
 
     def test_reinstall_and_upgrade_preserve_operator_config_and_deployment_data(self):
         self.assertEqual(self.run_installer().returncode, 0)

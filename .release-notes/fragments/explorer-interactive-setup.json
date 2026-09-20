@@ -1,0 +1,24 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-interactive-setup",
+  "type": "added",
+  "scopes": ["deployment", "documentation"],
+  "summary": "Add repeatable interactive Explorer setup for node connection, ingress and faucet policy",
+  "details": [
+    "Add usdb-explorer setup with current-setting defaults, input validation and a final review before atomically saving a private source configuration and its backup.",
+    "Cover local and external RPC, bundled or external Nginx, visitor URLs independent of host ports, existing HTTPS certificates, and optional faucet amounts and limits without collecting miner keys.",
+    "Preserve deployment identity, reference endpoints, samples and existing faucet policy; recover defaults from a verified prepared deployment if the source configuration is missing.",
+    "Leave services and prepared files unchanged, print path-specific prepare and lifecycle commands, and guide newly installed operators to setup. Noninteractive configure commands remain supported."
+  ],
+  "operator_actions": [
+    "After upgrading the tool, run usdb-explorer setup to configure or revise settings; apply saved changes using the printed prepare and lifecycle commands.",
+    "Provide existing certificates for bundled HTTPS or apply the generated private route snippet in external Nginx. Fund an enabled faucet separately after startup."
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": false
+  },
+  "references": []
+}

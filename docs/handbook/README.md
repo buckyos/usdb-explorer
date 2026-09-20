@@ -5,6 +5,7 @@
 
 | 目标 | 阅读入口 |
 | --- | --- |
+| 安装后交互配置节点连接、Nginx 与水龙头，或修改已有配置 | [交互式 setup](setup.md) |
 | 查看网络概览、查询矿工证、接入 BTC 索引器 | [USDB 专页](usdb-pages.md) |
 | 核验区块奖励、手续费分账与历史矿工证 | [区块经济明细与验收](block-economics.md) |
 | 领取测试币、启用水龙头、矿工补款与恢复 | [测试网水龙头](faucet.md) |
@@ -22,6 +23,7 @@
 | 功能 | 版本范围 |
 | --- | --- |
 | 同机部署、内置 Nginx、`configure --local-node` | v0.2.3 起 |
+| 可重复运行的 `setup`：连接、HTTP/HTTPS 入口与水龙头配置 | 本分支新增，需后续 release |
 | 首节点 genesis 阶段启动、`--auto-samples` | v0.2.4 起 |
 | USDB 网络概览、矿工证列表与历史查询 | 本分支新增，需后续 release |
 | USDB 区块经济明细、逐块重放核验 | 本分支新增；需同时升级 USDB-chain 与 Explorer |

@@ -17,7 +17,7 @@ from public_config import DIGEST_IMAGE, image_lock
 from network_contract import check_network
 from release_installer import render_installer
 
-FILES = ("usdb-explorer", "usdb-public", "usdb_public.py", "public_config.py", "public_checks.py", "faucet_config.py", "faucet_cli.py", "config.example.json",
+FILES = ("usdb-explorer", "usdb-public", "usdb_public.py", "public_setup.py", "public_config.py", "public_checks.py", "faucet_config.py", "faucet_cli.py", "config.example.json",
          "assets/images.lock.json", "networks/usdb-testnet-v0.json", "networks/usdb-testnet-v0.contract.json", "README.md")
 
 

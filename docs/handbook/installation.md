@@ -52,6 +52,16 @@ usdb-explorer --help
 
 ## 3. 选择访问地址与 Nginx 模式
 
+推荐使用交互式向导，首次安装和后续改配置均可运行：
+
+```bash
+usdb-explorer setup
+```
+
+向导覆盖节点连接、内置/外部 Nginx、访问地址、HTTP/HTTPS 端口、证书目录和可选水龙头，
+确认后保存并打印生效命令。提示含义与配置保留规则见[交互式 setup](setup.md)。
+以下 `configure` 命令仍可用于脚本或同机 HTTP 快捷配置。
+
 默认是 `local-node + bundled`：连接同机 `127.0.0.1:8545`，并运行内置 Nginx `proxy` 容器。
 Nginx 没有从 Explorer 移除；它统一服务网页、`/api/`、`/rpc` 和 `/network.json`。
 其中 `local-node` 是 `rpc.mode`，决定如何连接节点；`bundled` 是 `ingress.mode`，决定谁管理
@@ -76,9 +86,9 @@ usdb-explorer configure --local-node --explorer-url "$explorer_url" --http-port 
 此时 URL 填外部端口，`--http-port` 仍填 28080。浏览器中的 API 地址由公布 URL 生成，不能只改入口转发。
 本机检查公布的公网 URL 还依赖 NAT loopback/分离 DNS；最终须从真实访问者所在网络检查。
 `--explorer-url` 同时影响前端 API、钱包 RPC 和入口域名；`--http-port` 仅指定本机 bundled HTTP
-监听端口。提供 `--explorer-url` 的快捷命令会选择 bundled，external ingress 请编辑源 JSON。
+监听端口。提供 `--explorer-url` 的快捷命令会选择 bundled，external ingress 请使用 setup 或编辑源 JSON。
 只开放浏览器入口，不公开节点 `8545/8546` 或数据库端口。测试网可临时使用 HTTP；
-首次配置 HTTPS 还要在源 JSON 中设置证书目录，当前 CLI 没有证书与 HTTPS 端口选项。
+首次配置 HTTPS 可在 setup 中填写证书目录与 HTTPS 端口，也可直接编辑源 JSON。
 域名、内置/外部 Nginx 的 HTTPS 配置及续期步骤见[访问地址与 HTTPS](networking.md)。
 
 ## 4. prepare、预检和启动
