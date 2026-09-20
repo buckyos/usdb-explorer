@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Exercise generated ingress configurations with real, isolated Nginx containers."""
+import http.client
+import io
 import json
 import ipaddress
 from pathlib import Path
@@ -10,6 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.request
 import uuid
@@ -127,7 +130,9 @@ class IngressContainers(unittest.TestCase):
                     return response.status, response.read().decode(), response.headers
             except urllib.error.HTTPError as error:
                 return error.code, error.read().decode(), error.headers
-            except urllib.error.URLError:
+            except (urllib.error.URLError, ConnectionError, TimeoutError):
+                # Published ports can reset connections before Nginx is ready;
+                # urllib does not wrap every response-read failure in URLError.
                 if attempt == 29:
                     raise
                 time.sleep(.1)
@@ -218,6 +223,50 @@ class IngressContainers(unittest.TestCase):
         self.docker("exec", name, "nginx", "-t")
         self.docker("exec", name, "nginx", "-s", "reload")
         self.assertEqual(self.request("https://127.0.0.1:" + port + "/rpc", method="POST", context=context)[:2], (200, "/"))
+
+
+class IngressRequestTests(unittest.TestCase):
+    def setUp(self):
+        opener_patch = mock.patch.object(urllib.request, "build_opener")
+        self.opener = opener_patch.start().return_value
+        self.addCleanup(opener_patch.stop)
+        sleep_patch = mock.patch.object(time, "sleep")
+        self.sleep = sleep_patch.start()
+        self.addCleanup(sleep_patch.stop)
+
+    def test_transport_failure_retries_until_a_response_arrives(self):
+        # urllib can expose socket failures directly while reading response headers.
+        for error in (urllib.error.URLError(ConnectionRefusedError()), ConnectionResetError(),
+                      http.client.RemoteDisconnected(), TimeoutError()):
+            with self.subTest(error=type(error).__name__):
+                self.opener.reset_mock()
+                self.sleep.reset_mock()
+                response = mock.MagicMock(status=200, headers={})
+                response.read.return_value = b"/"
+                response.__enter__.return_value = response
+                self.opener.open.side_effect = [error, response]
+                self.assertEqual(IngressContainers().request("http://127.0.0.1/rpc", method="POST")[:2],
+                                 (200, "/"))
+                self.assertEqual(self.opener.open.call_count, 2)
+                self.sleep.assert_called_once_with(.1)
+
+    def test_persistent_connection_reset_still_fails_with_bounded_retries(self):
+        self.opener.open.side_effect = ConnectionResetError("fixture never became ready")
+        with self.assertRaisesRegex(ConnectionResetError, "fixture never became ready"):
+            IngressContainers().request("http://127.0.0.1/rpc", method="POST")
+        self.assertEqual(self.opener.open.call_count, 30)
+        self.assertEqual(self.sleep.call_count, 29)
+
+    def test_http_errors_reach_route_assertions_without_retry(self):
+        for status in (404, 502):
+            with self.subTest(status=status):
+                self.opener.reset_mock()
+                self.opener.open.side_effect = urllib.error.HTTPError(
+                    "http://127.0.0.1/rpc", status, "fixture error", {}, io.BytesIO(b"route failure"))
+                self.assertEqual(IngressContainers().request("http://127.0.0.1/rpc")[:2],
+                                 (status, "route failure"))
+                self.opener.open.assert_called_once()
+                self.sleep.assert_not_called()
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
