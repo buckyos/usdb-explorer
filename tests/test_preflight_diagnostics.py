@@ -367,6 +367,7 @@ class CheckOutputTests(unittest.TestCase):
                     with self.subTest(command=command, mined=mined, machine=machine), \
                             mock.patch.object(PUBLIC, "preflight", return_value=report), \
                             mock.patch.object(PUBLIC, "check_explorer", return_value=report), \
+                            mock.patch.object(PUBLIC, "check_ingresses", return_value=report), \
                             redirect_stdout(output), redirect_stderr(errors):
                         status = PUBLIC.main([command, "--state-dir", str(self.state), *(["--json"] if machine else [])])
                     self.assertEqual(status, 0)
@@ -386,6 +387,7 @@ class CheckOutputTests(unittest.TestCase):
                 failure = CHECK.RpcFailure("RPC_TIMEOUT", "ingress.explorer_url /rpc: timed out")
                 with mock.patch.object(PUBLIC, "preflight", side_effect=failure), \
                         mock.patch.object(PUBLIC, "check_explorer", side_effect=failure), \
+                        mock.patch.object(PUBLIC, "check_ingresses", side_effect=failure), \
                         redirect_stdout(output), redirect_stderr(errors):
                     status = PUBLIC.main([command, "--state-dir", str(self.state), *(["--json"] if machine else [])])
                 self.assertEqual(status, 1)

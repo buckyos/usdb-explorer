@@ -82,6 +82,10 @@ usdb-explorer check
 
 ## 外网正常但服务器上的 check 超时
 
+新版 `check` 自动对比 `loopback`、`lan` 与 `configured`，含各自结果、耗时和错误；详细范围见
+[入口对比说明](operations.md#区分本机入口与公布地址)。本机成功、公布地址失败时仍返回退出码 1，
+不能将本机成功理解为公网已恢复。以下手工探测也适用于 v0.2.7 及此前版本。
+
 `check` 从服务器访问公布 URL；它与外网 PC 的路径不同。即使 `up` 成功、上游 preflight 通过，
 服务器仍可能无法稳定经路由器的公网地址回访自己。错误里的 `eth_getBlockByNumber at block 0`
 是网络身份检查所用的 genesis 查询，不表示当前链停在高度 0，也不表示需要重新启用 mining。

@@ -1,0 +1,25 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-ingress-check-comparison",
+  "type": "added",
+  "scopes": ["deployment", "documentation"],
+  "summary": "Compare local, host and configured Explorer ingress paths in check diagnostics",
+  "details": [
+    "Run upstream preflight once, then compare canonical RPC and indexed API results independently across bundled loopback, default-route host addresses and the configured visitor origin, reporting status, elapsed time and errors for every applicable path.",
+    "Report RPC and block-list API reachability separately from canonical data checks; identify HTTP 404 for a sampled block or transaction as potentially pending indexing rather than a connection failure.",
+    "Keep default check strict: a failed tested path returns CHECK_FAILED and exit code 1 even if another succeeds. Preserve single-origin --url checks and existing success status values; JSON adds upstream, ingress_results and diagnosis fields.",
+    "Connect direct local HTTPS probes to the configured host TLS port while retaining the visitor hostname, HTTP Host, SNI and certificate validation. Do not follow redirects or use environment proxies for direct local probes.",
+    "Skip inapplicable bindings and unknown external-proxy listeners explicitly, bound host address discovery and concurrency, and distinguish configured-path connection failures from TLS, HTTP and indexing errors without claiming NAT is proven."
+  ],
+  "operator_actions": [
+    "Upgrade the Explorer management tool and run check to compare paths; this diagnostics-only change requires no deployment replacement or service restart.",
+    "Install iproute2 for automatic host address discovery. Use check --url for an explicit external-proxy origin and verify public reachability separately from an external client."
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": false
+  },
+  "references": []
+}

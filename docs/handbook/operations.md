@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | `preflight` | 配置中的上游 RPC、网络身份、状态和 tracing | 不访问公布的浏览器 URL，不保证前端或端口转发正常 |
 | `status` | 本部署的容器状态和配置入口 | running 不代表完成索引或能够对外访问 |
-| `check` | 先做 preflight，再通过公布 URL 检查 `/rpc` 和浏览器 API | 不等于全历史、重组、钱包广播或全网同步验收 |
+| `check` | 先做 preflight，再对比本机、主机/LAN、公布 URL 的 `/rpc` 和浏览器 API | 从服务器发起的探测不等于外网访问验收，也不等于全历史、重组或钱包广播验收 |
 
 新版默认先打印明确结论，例如首节点没有交易时：
 
@@ -48,8 +48,38 @@ usdb-explorer check --json
 
 ## 区分本机入口与公布地址
 
-`check` 默认使用源配置经 prepare 后的 `ingress.explorer_url`。NAT 回环或公布地址错误可能导致
-preflight 成功、check 失败。在支持 `--url` 的版本中，可临时检查 HTTP bundled 本机入口：
+安装包含多入口诊断的版本后，直接运行 `usdb-explorer check`，会先独立报告上游预检，再分别检查：
+
+| 输出名称 | 检查入口 |
+| --- | --- |
+| `loopback` | bundled Nginx 的回环地址和本机端口 |
+| `lan` / `lan-2` 等 | 默认路由接口的 IPv4 地址和本机端口；具体绑定某个地址时只检查该地址 |
+| `configured` | 已 prepare 的 `ingress.explorer_url`，按服务器当前 DNS/路由和 HTTP 代理环境访问 |
+
+每项显示地址、`PASSED` / `FAILED` / `SKIPPED`、耗时，失败时显示独立错误。
+每个入口进一步列出 `rpc`（chain ID 可达性）、`api`（区块列表 API 可达性）和 `canonical`
+（规范链身份、区块及交易数据核对）。RPC 失败后仍尝试 API；基础请求失败时 canonical 显示
+`NOT_RUN`。RPC/API 都能连接而刚出区块的样本 API 返回 404 时，会标为
+`EXPLORER_SAMPLE_UNAVAILABLE`，提示稍后重试并检查索引进度，不把它当作连接超时。
+上游只预检一次，入口共享同一检查点；某个入口失败不会阻断其他入口的结果收集。
+入口请求的单次网络超时为 5 秒，最多并行检查 4 个入口；耗时为该入口完整检查时间，包含 RPC 和 API，
+不是单独的 TCP 握手时间。每个入口会进行多个请求，有助于暴露间歇性故障，但一次通过不证明长期稳定。
+
+本机、LAN 都成功而 `configured` 超时时，会提示检查 DNS、HTTP 代理、路由、端口映射、防火墙和
+NAT 回环，并要求从外网对照验证；不会直接断言路由器有问题。TLS、HTTP 和索引不一致会分别保留
+具体错误。任何实际检查的入口失败，整体仍为 `Check FAILED`、退出码 1，不用本机成功覆盖公网失败。
+
+仅回环绑定时 LAN 显示 `SKIPPED`；具体非回环绑定时 loopback 显示 `SKIPPED`。
+地址发现依赖 `iproute2`，只扫描默认路由接口、最多 4 个地址，不遍历 Docker 网桥；发现失败时明确提示。
+external ingress 的管理员代理监听端口无法从内部 backend 端口推断，因此自动本机/LAN 检查显示
+`SKIPPED`，仍检查公布入口；可用 `--url` 明确指定管理员代理的实际入口。
+上游预检失败时，入口的规范链比较显示 `SKIPPED`，不会绕过完整模式要求。
+
+bundled HTTPS 使用本机 `https_port`，保持公布域名的 Host、TLS SNI 和证书验证；不会绕过证书校验，
+也不跟随 HTTP 跳转去公网。直接本机/LAN 探测绕过 HTTP 代理环境变量，因此能独立反映本机入口状态。
+这只改变该次连接的目标，不修改源配置、前端环境或部署文件。
+
+v0.2.7 及此前的 `check` 默认只检查公布 URL。在支持 `--url` 的版本中，可临时只检查 HTTP bundled 本机入口：
 
 ```bash
 usdb-explorer check --url http://127.0.0.1:28080
@@ -57,7 +87,11 @@ usdb-explorer check --url http://127.0.0.1:28080
 
 若改过监听端口，使用对应端口。该参数不修改源配置、前端环境或已生成文件，仍使用原上游。
 输出会明确提示公布地址没有被检查，JSON 的 `ingress_check` 为 `override_origin`。
-正常检查该字段为 `configured_origin`，也只证明执行命令的这台主机可以访问；公网访问需从外部网络复核。
+旧版默认该字段为 `configured_origin`；新版默认是 `multiple_origins`，增加 `upstream`、
+`ingress_results` 和 `diagnosis` 字段。成功保留 `CHECKED` / `CHECKED_NO_TRANSACTION_SAMPLE`，
+失败保留 `CHECK_FAILED` 和顶层 `error`，并附上各入口结果；每项的 `checks` / `check_errors`
+区分可达性与规范链核对。`--json` 始终只输出一个 JSON 文档。
+这些结果只证明执行命令的主机能否访问；公网访问仍需从外部网络复核。
 HTTPS 仍要求正确证书和主机名；此功能不跳过证书校验，也不自动跟随入口重定向。
 v0.2.4 不支持 `--url`，可使用[本机 curl 检查](troubleshooting.md#preflight-成功但-check-超时)。
 若外网页面已正常而本机回访公网地址超时，保留实际公网 URL，按

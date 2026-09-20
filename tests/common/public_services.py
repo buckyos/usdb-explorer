@@ -82,7 +82,7 @@ class PublicRpcFixture:
 
 
 @contextmanager
-def rpc_server(fixture, *, request_observer=None):
+def rpc_server(fixture, *, request_observer=None, api=False, tls_context=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -98,11 +98,25 @@ def rpc_server(fixture, *, request_observer=None):
             self.end_headers()
             self.wfile.write(body)
 
+        def do_GET(self):
+            if not api:
+                self.send_error(404)
+                return
+            if request_observer is not None:
+                request_observer(self.path, self.headers)
+            body = json.dumps(fixture.api(self.path)).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    if tls_context is not None:
+        server.socket = tls_context.wrap_socket(server.socket, server_side=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}"
+        yield f"{'https' if tls_context else 'http'}://127.0.0.1:{server.server_port}"
     finally:
         server.shutdown()
         server.server_close()

@@ -18,6 +18,7 @@ import tempfile
 from public_config import (GIB, compose_document, container_rpc, endpoint, image_lock, load_config,
                            local_rpc_config, nginx_config, read_json, security_enforcement, wallet_network, faucet_token)
 from public_checks import ReadRpc, check_explorer, identity_check, preflight, same_checkpoint
+from ingress_checks import check_ingresses
 
 KIT = Path(__file__).resolve().parent
 DEPLOYMENT_SCHEMA = "usdb-public-deployment:v1"
@@ -343,17 +344,41 @@ def print_check_report(command, report, *, json_output=False):
         print(json.dumps(report, indent=2))
         return
     pending = report.get("trace_sample") == "pending_no_transaction_sample"
-    result = "PASSED WITH WARNINGS" if pending else "PASSED"
+    failed = report.get("status") == "CHECK_FAILED"
+    result = "FAILED" if failed else "PASSED WITH WARNINGS" if pending or report.get("warnings") else "PASSED"
     outcome = "Explorer may start." if command == "preflight" else "Explorer RPC and API checks passed."
+    if failed:
+        outcome = "One or more checks failed; compare the results below."
     print(f"{command.capitalize()} {result}: {outcome}")
-    print(f"Checkpoint: block {report['checkpoint']['number']}")
-    history = "genesis state readable; archive history not yet verified" if report.get("historical_state_sample") == "genesis_only" else report.get("historical_state_sample", "not_run")
-    print(f"Historical state: {history}")
-    print("Transaction tracing: " + ("PENDING (no mined transaction sample)" if pending else report.get("trace_sample", "not_run")))
+    if "checkpoint" in report:
+        print(f"Checkpoint: block {report['checkpoint']['number']}")
+        history = "genesis state readable; archive history not yet verified" if report.get("historical_state_sample") == "genesis_only" else report.get("historical_state_sample", "not_run")
+        print(f"Historical state: {history}")
+        print("Transaction tracing: " + ("PENDING (no mined transaction sample)" if pending else report.get("trace_sample", "not_run")))
     if command == "preflight":
         print("Ingress: not checked; preflight probes upstream RPC only.")
     if command == "check":
-        if report.get("ingress_check") == "override_origin":
+        if report.get("ingress_check") == "multiple_origins":
+            upstream = report["upstream"]
+            print(f"Upstream preflight: {upstream['status']} ({upstream['duration_ms']} ms)")
+            if "error" in upstream:
+                print("  " + upstream["error"]["message"])
+            print("Access paths from this host (RPC and indexed API checks):")
+            for row in report["ingress_results"]:
+                elapsed = f" ({row['duration_ms']} ms)" if "duration_ms" in row else ""
+                print(f"  {row['name']:<12} {row['status']:<7} {row.get('url', '-')}{elapsed}")
+                if row.get("checks"):
+                    print("    " + "; ".join(name + "=" + status for name, status in row["checks"].items()))
+                for name, error in row.get("check_errors", {}).items():
+                    print(f"    {name}: {error['message']}")
+                if "error" in row and not row.get("check_errors"):
+                    print("    " + row["error"]["message"])
+                if "reason" in row:
+                    print("    " + row["reason"])
+                if row.get("connect_to"):
+                    print("    Request origin (Host / TLS SNI): " + row["origin"])
+            print("Diagnosis: " + report["diagnosis"])
+        elif report.get("ingress_check") == "override_origin":
             print("Target: --url override; the configured visitor URL was NOT checked.")
         else:
             print("Target: configured visitor URL, reached from this host.")
@@ -361,7 +386,7 @@ def print_check_report(command, report, *, json_output=False):
         print(f"WARNING: {warning}")
     if command == "preflight":
         print("Next: run usdb-explorer up; run usdb-explorer check after startup.")
-    elif pending:
+    elif pending and not failed:
         print("Next: rerun usdb-explorer check after a transaction is mined to validate receipt and callTracer execution.")
     print("Scope: configured upstream and available samples; full archive and network-wide synchronization are not certified.")
 
@@ -390,7 +415,8 @@ def parser():
         if name in {"preflight", "check"}:
             action.add_argument("--json", dest="json_output", action="store_true", help="Print only a JSON report; exit 0 for ready/passed, 1 for failure")
         if name == "check":
-            action.add_argument("--url", help="Check an explicit Explorer origin without changing the configured visitor URL")
+            action.description = "Compare upstream, bundled loopback, host/LAN and configured visitor paths; an explicit --url checks only that origin."
+            action.add_argument("--url", help="Check only this Explorer origin instead of comparing paths; does not change the visitor URL")
         if name in {"setup", "configure", "prepare"}:
             action.add_argument("--config", type=Path, default=Path.home() / ".config/usdb-public/config.json",
                                 help="Operator-owned configuration (default ~/.config/usdb-public/config.json)")
@@ -427,8 +453,14 @@ def execute(args, root):
     config, identity = read_json(root / "config.json"), read_json(root / "identity.json")
     document = read_json(root / "compose.json")
     if args.command in {"preflight", "check"}:
-        report = preflight(config, identity) if args.command == "preflight" else check_explorer(config, identity, explorer_url=args.url)
+        if args.command == "preflight":
+            report = preflight(config, identity)
+        elif args.url is not None:
+            report = check_explorer(config, identity, explorer_url=args.url)
+        else:
+            report = check_ingresses(config, identity)
         print_check_report(args.command, report, json_output=args.json_output)
+        return 1 if report.get("status") == "CHECK_FAILED" else 0
     elif args.command == "up":
         if not read_json(root / "images.lock.json")["qualified_for_public_exposure"]:
             print("WARNING: Testnet image security is report-only; unresolved findings do not block startup.")

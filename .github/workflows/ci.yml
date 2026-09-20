@@ -36,6 +36,7 @@ jobs:
           python3 tests/test_usdb_pages.py
           python3 tests/test_public_services.py
           python3 tests/test_preflight_diagnostics.py
+          python3 tests/test_ingress_checks.py
           python3 tests/test_local_deployment.py
           python3 tests/test_public_setup.py
           python3 tests/test_faucet.py

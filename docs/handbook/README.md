@@ -24,6 +24,7 @@
 | --- | --- |
 | 同机部署、内置 Nginx、`configure --local-node` | v0.2.3 起 |
 | 可重复运行的 `setup`：连接、HTTP/HTTPS 入口与水龙头配置 | 本分支新增，需后续 release |
+| 默认 `check` 对比上游、本机、LAN 和公布入口，分别报告结果 | v0.2.7 之后新增，需包含此改动的 release |
 | 首节点 genesis 阶段启动、`--auto-samples` | v0.2.4 起 |
 | USDB 网络概览、矿工证列表与历史查询 | 本分支新增，需后续 release |
 | USDB 区块经济明细、逐块重放核验 | 本分支新增；需同时升级 USDB-chain 与 Explorer |

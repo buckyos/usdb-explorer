@@ -111,12 +111,12 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def fetch(url, payload=None):
+def fetch(url, payload=None, *, opener=None, timeout=15):
     """Never log operator endpoints or upstream errors, which can contain access tokens."""
     request = urllib.request.Request(url, data=None if payload is None else json.dumps(payload).encode(),
                                      headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.build_opener(NoRedirect).open(request, timeout=15) as response:
+        with (opener or urllib.request.build_opener(NoRedirect)).open(request, timeout=timeout) as response:
             body = response.read(8 * 1024**2 + 1)
         if len(body) > 8 * 1024**2:
             raise ValueError("response exceeds the acceptance size limit")
@@ -340,22 +340,28 @@ def preflight(config, identity, *, rpc_factory=ReadRpc):
     return report
 
 
-def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch, explorer_url=None):
+def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch, explorer_url=None,
+                   preflight_report=None, public_rpc_factory=None, route_label=None):
     """Compare the public route and indexed data at a fixed upstream checkpoint."""
     origin = explorer_url if explorer_url is not None else config["ingress"]["explorer_url"]
     endpoint(origin, origin=True)
     origin = origin.rstrip("/")
-    report = preflight(config, identity, rpc_factory=rpc_factory)
+    report = dict(preflight_report) if preflight_report is not None else preflight(config, identity, rpc_factory=rpc_factory)
     report["ingress_check"] = "override_origin" if explorer_url is not None else "configured_origin"
-    route = "check --url" if explorer_url is not None else "ingress.explorer_url"
+    route = route_label or ("check --url" if explorer_url is not None else "ingress.explorer_url")
     guidance = ("Upstream preflight passed. Check the Explorer origin, proxy listener, port forwarding and NAT loopback; "
                 "use the actual visitor URL, not a documentation example. No mining is needed for a genesis RPC response.")
-    public = named_rpc(rpc_factory(origin + "/rpc"), route + " /rpc", guidance=guidance)
+    public = named_rpc((public_rpc_factory or rpc_factory)(origin + "/rpc"), route + " /rpc", guidance=guidance)
 
     def api(path):
         try:
             return api_fetch(origin + path)
         except RpcFailure as error:
+            if error.category == "RPC_HTTP" and error.detail.startswith("HTTP endpoint returned status 404;") and (
+                    path.startswith("/api/v2/blocks/0x") or path.startswith("/api/v2/transactions/0x")):
+                raise RpcFailure("EXPLORER_SAMPLE_UNAVAILABLE", f"{route} /api/v2: sampled block or transaction returned HTTP 404; "
+                                 "the indexer may not have reached this checkpoint yet. Wait briefly and rerun check; "
+                                 "if it persists, inspect indexing progress and API routing. RPC reachability does not certify indexed data.") from None
             raise RpcFailure(error.category, f"{route} /api/v2: {error.detail} "
                              "Check proxy, gateway and Blockscout backend readiness; absence of mined blocks does not explain a connection failure.") from None
 
@@ -376,7 +382,7 @@ def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch, ex
                 raise ValueError("explorer contains mined transactions beyond the genesis-only upstream")
     else:
         indexed = api("/api/v2/blocks/" + checkpoint["hash"])
-        if indexed.get("hash") != checkpoint["hash"] or indexed.get("height") != report["checkpoint"]["number"]:
+        if not isinstance(indexed, dict) or indexed.get("hash") != checkpoint["hash"] or indexed.get("height") != report["checkpoint"]["number"]:
             raise ValueError("explorer has not indexed the observed upstream checkpoint")
     transaction = report["transaction"]
     if transaction is None:
@@ -390,7 +396,7 @@ def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch, ex
         return report
     receipt = public("eth_getTransactionReceipt", [transaction])
     indexed_tx = api("/api/v2/transactions/" + transaction)
-    if (not isinstance(receipt, dict) or indexed_tx.get("hash") != transaction
+    if (not isinstance(receipt, dict) or not isinstance(indexed_tx, dict) or indexed_tx.get("hash") != transaction
             or indexed_tx.get("block_number") != quantity(receipt.get("blockNumber"))
             or indexed_tx.get("result") != ("success" if quantity(receipt.get("status")) == 1 else "execution reverted")
             or str(indexed_tx.get("gas_used")) != str(quantity(receipt.get("gasUsed")))):

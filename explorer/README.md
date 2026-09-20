@@ -1,6 +1,9 @@
 # USDB 浏览器与公共 RPC 独立部署
 
 用户操作入口见 [Explorer handbook](../docs/handbook/README.md)；本文保留参数、拓扑和部署机制参考。
+新版默认 `check` 会对比上游、本机、LAN 与公布入口，报告各项耗时和错误；`--url` 保留单入口检查。
+本机通过不会覆盖公布入口失败，HTTPS 本地探测保持原域名和证书验证；详见
+[多入口检查](../docs/handbook/operations.md#区分本机入口与公布地址)。
 `local-node` 与 `bundled` 的独立含义、公布地址和监听端口、域名/HTTPS 操作步骤见
 [部署模式与访问地址](../docs/handbook/networking.md)。
 
