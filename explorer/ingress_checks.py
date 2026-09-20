@@ -14,12 +14,12 @@ from public_checks import NoRedirect, ReadRpc, RpcFailure, check_explorer, fetch
 from public_config import endpoint
 
 
-def host_addresses():
-    """Read IPv4 addresses on default-route interfaces; never enumerate Docker bridge destinations."""
+def host_addresses(version=4):
+    """Read usable addresses on default-route interfaces, excluding Docker bridges and tentative IPv6."""
     try:
-        routes = json.loads(subprocess.run(["ip", "-j", "-4", "route", "show", "default"],
+        routes = json.loads(subprocess.run(["ip", "-j", f"-{version}", "route", "show", "default"],
                             check=True, capture_output=True, text=True, timeout=3).stdout)
-        interfaces = json.loads(subprocess.run(["ip", "-j", "-4", "address", "show"],
+        interfaces = json.loads(subprocess.run(["ip", "-j", f"-{version}", "address", "show"],
                                 check=True, capture_output=True, text=True, timeout=3).stdout)
         devices = {route["dev"] for route in routes if "dev" in route}
         result = set()
@@ -27,19 +27,21 @@ def host_addresses():
             if interface["ifname"] not in devices or "UP" not in interface.get("flags", []):
                 continue
             for item in interface.get("addr_info", []):
-                if item.get("family") == "inet" and item.get("scope") == "global":
-                    address = ipaddress.IPv4Address(item["local"])
+                if (item.get("family") == ("inet" if version == 4 else "inet6") and item.get("scope") == "global"
+                        and not any(item.get(flag) for flag in ("tentative", "dadfailed", "deprecated"))
+                        and not set(item.get("flags", [])) & {"tentative", "dadfailed", "deprecated"}):
+                    address = ipaddress.ip_address(item["local"])
                     if not (address.is_loopback or address.is_link_local or address.is_unspecified or address.is_multicast):
                         result.add(str(address))
         if not result:
-            return [], "No usable IPv4 address found on the host's default-route interfaces."
-        addresses = sorted(result, key=ipaddress.IPv4Address)
+            return [], f"No usable IPv{version} address found on the host's default-route interfaces."
+        addresses = sorted(result, key=ipaddress.ip_address)
         return addresses[:4], "Only the first four host addresses are checked." if len(addresses) > 4 else None
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, AttributeError):
         return [], "Host address discovery unavailable; install iproute2 or check the intended LAN origin explicitly with check --url."
 
 
-def ingress_targets(config, *, discover=host_addresses):
+def ingress_targets(config, *, discover=host_addresses, discover_ipv6=partial(host_addresses, version=6)):
     """Infer only listeners owned by bundled ingress; external proxies need explicit origins."""
     ingress = config["ingress"]
     origin = ingress["explorer_url"].rstrip("/")
@@ -51,7 +53,8 @@ def ingress_targets(config, *, discover=host_addresses):
     bind = ipaddress.IPv4Address(ingress.get("bind_address", "127.0.0.1"))
     port = ingress.get("https_port", 28443) if parsed.scheme == "https" else ingress.get("http_port", 28080)
     def target(name, address):
-        return {"name": name, "origin": origin, "url": f"{parsed.scheme}://{address}:{port}", "connect_to": [address, port]}
+        host = f"[{address}]" if ":" in address else address
+        return {"name": name, "origin": origin, "url": f"{parsed.scheme}://{host}:{port}", "connect_to": [address, port]}
     targets, warnings = [], []
     if bind.is_unspecified or bind.is_loopback:
         targets.append(target("loopback", "127.0.0.1" if bind.is_unspecified else str(bind)))
@@ -66,6 +69,22 @@ def ingress_targets(config, *, discover=host_addresses):
         targets.extend(target("lan" if index == 0 else f"lan-{index + 1}", address) for index, address in enumerate(addresses))
         if not addresses:
             targets.append({"name": "lan", "status": "SKIPPED", "reason": warning or "No host address discovered."})
+    if ingress.get("bind_address_ipv6"):
+        bind6 = ipaddress.IPv6Address(ingress["bind_address_ipv6"])
+        if bind6.is_unspecified or bind6.is_loopback:
+            targets.append(target("loopback-ipv6", "::1"))
+        else:
+            targets.append({"name": "loopback-ipv6", "status": "SKIPPED", "reason": "IPv6 ingress is bound to a specific non-loopback address."})
+        if bind6.is_loopback:
+            targets.append({"name": "host-ipv6", "status": "SKIPPED", "reason": "IPv6 ingress is bound to loopback only."})
+        else:
+            addresses, warning = discover_ipv6() if bind6.is_unspecified else ([str(bind6)], None)
+            if warning:
+                warnings.append(warning)
+            targets.extend(target("host-ipv6" if index == 0 else f"host-ipv6-{index + 1}", address)
+                           for index, address in enumerate(addresses))
+            if not addresses:
+                targets.append({"name": "host-ipv6", "status": "SKIPPED", "reason": warning or "No host IPv6 address discovered."})
     return targets + [configured], warnings
 
 
@@ -166,9 +185,9 @@ def diagnosis(report):
     return "Ingress checks failed; inspect the proxy listener, service health and each reported RPC/API error. Upstream preflight passed."
 
 
-def check_ingresses(config, identity, *, discover=host_addresses, upstream_check=preflight, probe=probe_ingress):
+def check_ingresses(config, identity, *, discover=host_addresses, discover_ipv6=partial(host_addresses, version=6), upstream_check=preflight, probe=probe_ingress):
     """Collect all applicable results; failures remain failures even when another route passes."""
-    targets, warnings = ingress_targets(config, discover=discover)
+    targets, warnings = ingress_targets(config, discover=discover, discover_ipv6=discover_ipv6)
     started = time.monotonic()
     try:
         report = dict(upstream_check(config, identity))

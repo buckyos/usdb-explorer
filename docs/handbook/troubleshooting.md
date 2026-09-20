@@ -10,9 +10,22 @@
 | preflight 成功，check 超时 | [检查访问链路](#preflight-成功但-check-超时) |
 | 外网页面正常，但服务器 check 仍超时 | [公网地址回访](#外网正常但服务器上的-check-超时) |
 | HTML 打开，但数据请求失败 | [页面和 API 地址](#页面打开但数据不显示) |
+| 控制台反复出现 `/socket/v2/websocket` 连接失败 | [WebSocket 与缓存](#websocket-与页面缓存) |
+| 域名 IPv4 正常、IPv6 失败 | [双栈入口](networking.md#ipv4-与-ipv6-双栈入口) |
 | 高度 35 超过当前链头、旧交易找不到 | [旧采样配置](#旧采样配置) |
 | 缺少 archive、tracing 或上游不可达 | [RPC 分类](#rpc-分类与恢复) |
 | 内存、Docker、摘要或数据库身份错误 | [部署问题](#部署文件资源与数据库问题) |
+
+## WebSocket 与页面缓存
+
+当前公开入口尚未提供实时推送，`/socket` 返回 404 是预期行为。包含修复的新前端会停止创建
+此类 WebSocket 连接；HTTP 查询及 Overview 的定时刷新仍然保留。升级管理工具后还需要
+`down → prepare --replace → preflight → up`，使新 release 的前端镜像替换旧容器，然后强制刷新浏览器。
+仅修改域名或重启旧镜像不会修复旧前端的重连行为。
+
+若控制台仍显示旧 IP，核对源配置的 `ingress.explorer_url` 与已 prepare 的配置，并确认已应用
+新部署、浏览器未沿用旧资源。改变 DNS 不会自动修改前端公布的 API 地址。
+页面空白时，另查失败的文档/脚本请求与首条脚本异常；不能仅凭 WebSocket 错误认定它是页面故障原因。
 
 ## 预检结果与等待交易
 

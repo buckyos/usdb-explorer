@@ -95,7 +95,7 @@ class PublicInstallerTests(unittest.TestCase):
                                    "--state-dir", str(state)], env=self.env, stdin=slave, stdout=slave, stderr=slave) as command:
                 os.close(slave)
                 slave = None
-                os.write(master, b"\n" * 8)
+                os.write(master, b"\n" * 9)
                 try:
                     command.wait(timeout=10)
                 except subprocess.TimeoutExpired:

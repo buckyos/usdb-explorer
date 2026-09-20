@@ -151,6 +151,10 @@ def configure(args, *, kit=KIT):
         ingress["http_port"] = args.http_port
     if args.bind_address:
         ingress["bind_address"] = args.bind_address
+    if args.bind_address_ipv6 is not None:
+        ingress["bind_address_ipv6"] = args.bind_address_ipv6
+    if args.no_ipv6:
+        ingress.pop("bind_address_ipv6", None)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, temporary = tempfile.mkstemp(prefix=".explorer-config-", dir=path.parent)
     staging = Path(temporary)
@@ -428,6 +432,9 @@ def parser():
             action.add_argument("--explorer-url", help="Advertised origin; select bundled ingress and public binding for a non-loopback host")
             action.add_argument("--http-port", type=int, help="Local bundled HTTP port, independent of the advertised port (default 28080)")
             action.add_argument("--bind-address", help="Override the ingress IPv4 bind address")
+            ipv6 = action.add_mutually_exclusive_group()
+            ipv6.add_argument("--bind-address-ipv6", help="Add a bundled IPv6 listener, e.g. :: (public) or ::1 (loopback); keep IPv4")
+            ipv6.add_argument("--no-ipv6", action="store_true", help="Remove the additional bundled IPv6 listener")
         if name == "prepare":
             action.add_argument("--replace", action="store_true", help="Back up and replace a stopped generation, retaining credentials")
             action.add_argument("--credentials-file", type=Path, help="Restore saved credentials into a new state directory")

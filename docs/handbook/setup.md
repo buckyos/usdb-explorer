@@ -24,6 +24,8 @@ usdb-explorer setup
 | Ingress | `bundled` 使用内置 Nginx；`external` 使用管理员维护的外部代理 |
 | Visitor URL | 用户浏览器真实使用的完整 origin，含协议和必要的外部端口，不能有子路径 |
 | Nginx host bind address | 本机监听地址；新选择回环 URL 时默认 `127.0.0.1`，非回环 URL 默认 `0.0.0.0` |
+| Also publish Nginx over IPv6 | bundled 模式可选；未配置时默认 `n`，已有配置保留当前值；选 `y` 后保留 IPv4 并增加 IPv6 入口 |
+| Nginx IPv6 bind address | 输入不带方括号的 IPv6 地址；public 默认 `::`，private 只能使用 `::1`；HTTP 和 HTTPS 共用监听范围 |
 | Nginx local HTTP / HTTPS port | 本机端口，默认 `28080` / `28443`，可以与公网映射端口不同 |
 | Certificate directory | bundled + HTTPS 时填写已有证书目录，包含 `fullchain.pem`、`privkey.pem` |
 | Local frontend / gateway port | external 模式的回环后端端口，默认 `28080` / `28081`；启用水龙头时还可配置其回环端口，默认 `28083` |

@@ -54,6 +54,8 @@ usdb-explorer check --json
 | --- | --- |
 | `loopback` | bundled Nginx 的回环地址和本机端口 |
 | `lan` / `lan-2` 等 | 默认路由接口的 IPv4 地址和本机端口；具体绑定某个地址时只检查该地址 |
+| `loopback-ipv6` | 启用 bundled IPv6 后检查 `::1` 和本机端口；绑定具体非回环 IPv6 地址时跳过 |
+| `host-ipv6` / `host-ipv6-2` 等 | 启用 bundled IPv6 后检查 IPv6 默认路由接口的可用地址；具体绑定时只检查该地址 |
 | `configured` | 已 prepare 的 `ingress.explorer_url`，按服务器当前 DNS/路由和 HTTP 代理环境访问 |
 
 每项显示地址、`PASSED` / `FAILED` / `SKIPPED`、耗时，失败时显示独立错误。
@@ -70,6 +72,8 @@ NAT 回环，并要求从外网对照验证；不会直接断言路由器有问�
 具体错误。任何实际检查的入口失败，整体仍为 `Check FAILED`、退出码 1，不用本机成功覆盖公网失败。
 
 仅回环绑定时 LAN 显示 `SKIPPED`；具体非回环绑定时 loopback 显示 `SKIPPED`。
+IPv6 未启用时不增加 IPv6 检查项；已启用但无法探测到可用主机 IPv6 地址时，`host-ipv6`
+显示 `SKIPPED` 并给出原因，不能据此认为公网 IPv6 可达。启用及外部验收见[双栈入口](networking.md#ipv4-与-ipv6-双栈入口)。
 地址发现依赖 `iproute2`，只扫描默认路由接口、最多 4 个地址，不遍历 Docker 网桥；发现失败时明确提示。
 external ingress 的管理员代理监听端口无法从内部 backend 端口推断，因此自动本机/LAN 检查显示
 `SKIPPED`，仍检查公布入口；可用 `--url` 明确指定管理员代理的实际入口。

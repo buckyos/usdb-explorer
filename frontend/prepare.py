@@ -68,6 +68,12 @@ def prepare(archive, destination):
     # Next checks types before the routes plugin regenerates its declarations.
     replace_once(destination, "nextjs/nextjs-routes.d.ts", "  export type Route =",
                  '  export type Route =\n    | StaticRoute<"/usdb">\n    | StaticRoute<"/usdb/passes">\n    | StaticRoute<"/usdb/economics">\n    | StaticRoute<"/usdb/faucet">')
+    # Public ingress does not expose Phoenix channels. Keep the socket context
+    # for upstream components, but do not connect or retry an unavailable route.
+    replace_once(destination, "pages/_app.tsx", "import getSocketUrl from 'lib/api/getSocketUrl';\n", "")
+    replace_once(destination, "pages/_app.tsx",
+                 "  const socketUrl = !config.features.opSuperchain.isEnabled ? getSocketUrl() : undefined;\n\n", "")
+    replace_once(destination, "pages/_app.tsx", "<SocketProvider url={ socketUrl }>", "<SocketProvider>")
     replace_once(destination, "ui/pages/Block.tsx", "          <BlockDetails query={ blockQuery }/>",
                  """          <BlockDetails query={ blockQuery }/>
           { blockQuery.data?.hash && !blockQuery.isPlaceholderData && <p style={{ marginTop: 20 }}>

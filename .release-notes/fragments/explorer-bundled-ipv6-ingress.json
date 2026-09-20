@@ -1,0 +1,29 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-bundled-ipv6-ingress",
+  "type": "added",
+  "scopes": [
+    "deployment",
+    "network",
+    "documentation"
+  ],
+  "summary": "Support optional IPv6 ingress alongside existing IPv4 HTTP and HTTPS listeners",
+  "details": [
+    "Add bind_address_ipv6 for bundled ingress, configure --bind-address-ipv6/--no-ipv6 and interactive setup; preserve IPv4 defaults and require loopback for private IPv6 exposure.",
+    "Publish only the proxy on the additional IPv6 address, enable native IPv6 on its app network, and generate HTTP/HTTPS listeners and redirects; private services gain no published ports.",
+    "Report IPv6 loopback and default-route host checks separately, preserving Host, SNI, certificate validation and failure exit codes; skipped host discovery does not establish external IPv6 reachability.",
+    "External proxies retain ownership of IPv6 listeners. IPv6 is opt-in and requires host/Docker IPv6 support, suitable DNS and independently managed router/host firewall rules."
+  ],
+  "operator_actions": [
+    "Install the new release; enable IPv6 in setup or, for an existing public local-node deployment, run configure --local-node --bind-address-ipv6 ::.",
+    "Apply changed networking with down, prepare --replace, preflight and up; retain volumes. Run check and verify IPv4 and IPv6 separately from an external client.",
+    "Configure the domain AAAA record and IPv6 firewall reachability. To revert the additional listener, use configure --local-node --no-ipv6 and repeat the deployment replacement."
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": true,
+    "restart_required": true
+  },
+  "references": []
+}

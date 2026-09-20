@@ -10,6 +10,12 @@ verifies the archive before extraction, rejects unsafe paths, applies checked
 navigation/metadata patches, and copies `overlay/`. An upstream update must
 review these patches and pass the production build and browser fixtures.
 
+The default socket provider has no connection URL: public ingress intentionally
+does not expose Phoenix `/socket` channels. This prevents failed WebSocket
+connections and retries without changing HTTP API reads or the USDB overview's
+15-second polling. Realtime support must be implemented and qualified across
+the frontend, gateway and ingress before restoring that provider's URL.
+
 `Dockerfile` preserves upstream's dependency lockfiles, Next standalone build,
 and runtime environment handling. Its source is Blockscout frontend v2.3.5
 (commit `95feb0ba3245c67b1ced38e71a38569951add266`), licensed under GPL-3.0;

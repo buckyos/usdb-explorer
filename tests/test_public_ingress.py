@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Exercise generated ingress configurations with real, isolated Nginx containers."""
 import json
+import ipaddress
 from pathlib import Path
+import socket
 import ssl
 import subprocess
 import sys
@@ -15,7 +17,7 @@ from contextlib import ExitStack
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "explorer"))
-from public_config import image_lock, nginx_config, read_json
+from public_config import image_lock, nginx_config, proxy_port_bindings, read_json
 import public_checks as CHECK
 import usdb_public as PUBLIC
 from common.public_services import PublicRpcFixture, rpc_server
@@ -88,17 +90,18 @@ class IngressContainers(unittest.TestCase):
         cls.image = image_lock(ROOT / "explorer")["images"]["nginx"]["reference"]
         if subprocess.run(["docker", "image", "inspect", cls.image], capture_output=True).returncode:
             cls.docker("pull", cls.image)
-        cls.docker("network", "create", cls.prefix)
+        cls.docker("network", "create", "--ipv6", cls.prefix)
         cls.addClassCleanup(cls.docker, "network", "rm", cls.prefix)
         fixture = cls.root / "fixture.conf"
-        fixture.write_text('events {}\nhttp { server { listen 8080; location / { return 200 "$request_uri"; } } '
+        fixture.write_text('events {}\nhttp { server { listen 8080; location = /api/client-ip { return 200 "$http_x_forwarded_for"; } '
+                           'location / { return 200 "$request_uri"; } } '
                            'server { listen 3000; location / { return 200 "frontend:$request_uri"; } } }\n')
         cls.fixture = cls.start("fixture", ["--network-alias", "frontend", "--network-alias", "gateway"], fixture)
         cls.fixture_ip = json.loads(cls.docker("inspect", cls.fixture))[0]["NetworkSettings"]["Networks"][cls.prefix]["IPAddress"]
         cls.certificates = cls.root / "tls"
         cls.certificates.mkdir()
         subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
-                        "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
+                        "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1",
                         "-keyout", str(cls.certificates / "privkey.pem"), "-out", str(cls.certificates / "fullchain.pem")],
                        check=True, capture_output=True)
 
@@ -116,7 +119,7 @@ class IngressContainers(unittest.TestCase):
         return name
 
     def request(self, url, *, method="GET", context=None):
-        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), NoRedirect)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context), NoRedirect)
         request = urllib.request.Request(url, method=method, data=b"{}" if method == "POST" else None)
         for attempt in range(30):
             try:
@@ -154,6 +157,52 @@ class IngressContainers(unittest.TestCase):
         self.docker("exec", name, "nginx", "-t")
         self.assertEqual(self.request("http://127.0.0.1:" + port + "/rpc", method="POST")[:2], (200, "/"))
         self.assertEqual(self.request("http://127.0.0.1:" + port + "/api/v2/transactions")[1], "/api/v2/transactions")
+
+    def test_dual_stack_published_http_https_and_ipv6_forwarded_address(self):
+        # Reserve both families together, then let Docker bind the same port.
+        with ExitStack() as reservations:
+            ports = []
+            for _ in range(4):
+                v4 = reservations.enter_context(socket.socket(socket.AF_INET))
+                v4.bind(("127.0.0.1", 0))
+                port = v4.getsockname()[1]
+                v6 = reservations.enter_context(socket.socket(socket.AF_INET6))
+                v6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                v6.bind(("::1", port))
+                ports.append(port)
+        reserved_ports = ports
+        for index, tls in enumerate((False, True)):
+            ports = reserved_ports[index * 2:index * 2 + 2]
+            ingress = {"mode": "bundled", "bind_address": "127.0.0.1", "bind_address_ipv6": "::1",
+                       "explorer_url": "https://localhost:28443" if tls else "http://localhost:28080"}
+            path = self.root / f"dual-{tls}.conf"
+            path.write_text(nginx_config({"ingress": ingress}))
+            extra = []
+            for published, target in zip(ports, (8080, 8443) if tls else (8080,)):
+                for binding in proxy_port_bindings(ingress, published, target):
+                    extra.extend(["-p", binding])
+            if tls:
+                extra.extend(["-v", str(self.certificates) + ":/tls:ro"])
+            name = self.start(f"dual-{tls}", extra, path)
+            self.docker("exec", name, "nginx", "-t")
+            context = ssl.create_default_context(cafile=str(self.certificates / "fullchain.pem"))
+            scheme, port = ("https", ports[1]) if tls else ("http", ports[0])
+            for host in ("127.0.0.1", "[::1]"):
+                origin = f"{scheme}://{host}:{port}"
+                self.assertEqual(self.request(origin + "/rpc", method="POST", context=context)[:2], (200, "/"))
+                self.assertEqual(self.request(origin + "/usdb", context=context)[:2], (200, "frontend:/usdb"))
+                self.assertEqual(self.request(origin + "/api/v2/blocks", context=context)[:2], (200, "/api/v2/blocks"))
+                self.assertEqual(self.request(origin + "/socket/v2/websocket", context=context)[0], 404)
+                if tls:
+                    status, _, headers = self.request(f"http://{host}:{ports[0]}/usdb")
+                    self.assertEqual((status, headers["Location"]), (308, "https://localhost:28443/usdb"))
+            # A native IPv6 client reaches Nginx without being represented as IPv4.
+            proxy_ip = json.loads(self.docker("inspect", name))[0]["NetworkSettings"]["Networks"][self.prefix]["GlobalIPv6Address"]
+            if not tls:
+                forwarded = self.docker("run", "--rm", "--network", self.prefix, "--entrypoint", "wget", self.image,
+                                        "-qO-", "-T", "3", "--header=X-Forwarded-For:192.0.2.1",
+                                        f"http://[{proxy_ip}]:8080/api/client-ip")
+                self.assertEqual(ipaddress.ip_address(forwarded).version, 6)
 
     def test_bundled_https_certificate_and_checked_reload(self):
         config = {"ingress": {"mode": "bundled", "bind_address": "127.0.0.1", "explorer_url": "https://localhost:28443"}}

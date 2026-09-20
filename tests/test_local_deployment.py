@@ -79,6 +79,43 @@ class LocalDeploymentTests(unittest.TestCase):
         self.assertEqual(CONFIG.read_json(self.state / "network.json")["rpcUrls"], ["http://192.0.2.10:38080/rpc"])
         self.assertNotIn("ssl_certificate", (self.state / "nginx.conf").read_text())
 
+    def test_opt_in_dual_stack_publishes_only_proxy_and_preserves_identity_on_disable(self):
+        self.configure("--explorer-url", "http://explorer.example.test:28080", "--bind-address-ipv6", "::")
+        doc = self.prepare()
+        self.assertEqual(doc["services"]["proxy"]["ports"], ["0.0.0.0:28080:8080", "[::]:28080:8080"])
+        self.assertTrue(doc["networks"]["app"]["enable_ipv6"])
+        self.assertIn("listen [::]:8080 ipv6only=on;", (self.state / "nginx.conf").read_text())
+        for name, service in doc["services"].items():
+            if name != "proxy":
+                self.assertNotIn("ports", service)
+        self.assertNotIn("enable_ipv6", doc["networks"]["rpc"])
+        self.assertNotIn("enable_ipv6", doc["networks"]["database"])
+        credentials = (self.state / "credentials.json").read_bytes()
+        # Unrelated reconfiguration must retain the IPv6 listener.
+        config = self.configure("--http-port", "28082")
+        self.assertEqual(config["ingress"]["bind_address_ipv6"], "::")
+        self.configure("--no-ipv6")
+        with mock.patch.object(PUBLIC, "require_stopped"):
+            PUBLIC.prepare(self.input, self.state, replace=True)
+        updated = CONFIG.read_json(self.state / "compose.json")
+        self.assertEqual(updated["services"]["proxy"]["ports"], ["0.0.0.0:28082:8080"])
+        self.assertNotIn("enable_ipv6", updated["networks"]["app"])
+        self.assertEqual(updated["volumes"], doc["volumes"])
+        self.assertEqual((self.state / "credentials.json").read_bytes(), credentials)
+
+    def test_ipv6_binding_validation_does_not_save_invalid_or_widen_private_settings(self):
+        before = self.input.read_bytes()
+        for address in ("::", "2001:db8::1", "[::1]", "127.0.0.1", "fe80::1%eth0", "::ffff:127.0.0.1", "ff02::1", ""):
+            with self.subTest(address=address), self.assertRaises(ValueError):
+                self.configure("--bind-address-ipv6", address)
+            self.assertEqual(self.input.read_bytes(), before)
+        config = self.configure("--bind-address-ipv6", "::1")
+        self.assertEqual(self.prepare()["services"]["proxy"]["ports"], ["127.0.0.1:28080:8080", "[::1]:28080:8080"])
+        config["ingress"]["mode"] = "external"
+        self.input.write_text(json.dumps(config))
+        with self.assertRaisesRegex(ValueError, "external proxy"):
+            CONFIG.load_config(self.input, PUBLIC.KIT)
+
     def test_explicit_legacy_conversion_preserves_identity_samples_credentials_and_volumes(self):
         self.config["deployment_id"] = "operator-existing-explorer"
         self.config["rpc"] = {"read_url": "http://archive.internal:8545", "transaction": "0x" + "ab" * 32}

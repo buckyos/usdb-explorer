@@ -9,7 +9,7 @@ import sys
 import tempfile
 
 from faucet_config import DEFAULTS, amount
-from public_config import endpoint, load_config, read_json
+from public_config import endpoint, ipv6_binding, load_config, read_json
 
 
 class Prompts:
@@ -138,6 +138,15 @@ def configure_ingress(config, prompts):
                 raise ValueError("Enter an IPv4 bind address; private exposure requires loopback.") from None
             return value
         ingress["bind_address"] = prompts.ask("Nginx host bind address", bind, address)
+        if prompts.yes("Also publish Nginx over IPv6", "bind_address_ipv6" in ingress):
+            default_v6 = ingress.get("bind_address_ipv6", "::1" if ingress["exposure"] == "private" else "::")
+            if ingress["exposure"] == "private":
+                default_v6 = "::1"
+            ingress["bind_address_ipv6"] = prompts.ask("Nginx IPv6 bind address", default_v6,
+                                                       lambda value: ipv6_binding(value, ingress["exposure"]))
+            prompts.say("IPv6 requires host IPv6 support and Docker IPv6 bridge networking. Public access also requires an IPv6 route and firewall rule.")
+        else:
+            ingress.pop("bind_address_ipv6", None)
         ingress["http_port"] = prompts.integer("Nginx local HTTP port", ingress.get("http_port", 28080))
         if parsed.scheme == "https":
             ingress["https_port"] = prompts.integer("Nginx local HTTPS port", ingress.get("https_port", 28443))
@@ -154,6 +163,7 @@ def configure_ingress(config, prompts):
             ingress.pop("tls", None)
     else:
         ingress["bind_address"] = "127.0.0.1"
+        ingress.pop("bind_address_ipv6", None)
         ingress.pop("tls", None)
         ingress["web_port"] = prompts.integer("Local frontend port for your proxy", ingress.get("web_port", 28080))
         ingress["gateway_port"] = prompts.integer("Local gateway port for your proxy", ingress.get("gateway_port", 28081))
@@ -196,6 +206,8 @@ def summary(config, prompts):
         ports = ["web_port", "gateway_port"] + (["faucet_port"] if faucet.get("enabled") else [])
     for key in ports:
         prompts.say(f"  {key}: {ingress['bind_address']}:{ingress[key]}")
+        if ingress.get("bind_address_ipv6"):
+            prompts.say(f"  {key} (IPv6): [{ingress['bind_address_ipv6']}]:{ingress[key]}")
     if "tls" in ingress:
         prompts.say("Certificate directory: " + ingress["tls"]["certificate_dir"])
     prompts.say("Faucet: " + ("enabled" if faucet.get("enabled") else "disabled"))

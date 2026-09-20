@@ -71,6 +71,19 @@ class PublicSetupTests(unittest.TestCase):
         self.assertEqual(backup.read_bytes(), before)
         self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
 
+    def test_ipv6_setup_preserves_existing_listener_and_clears_it_for_external_ingress(self):
+        self.run_setup(Answers(**{"Visitor URL": ["http://explorer.example.test:28080"], "Also publish Nginx over IPv6": ["y"]}))
+        self.assertEqual(self.config()["ingress"]["bind_address_ipv6"], "::")
+        self.assertIn("[::]:28080", self.output.getvalue())
+        self.run_setup()
+        self.assertEqual(self.config()["ingress"]["bind_address_ipv6"], "::")
+        self.run_setup(Answers(**{"Also publish Nginx over IPv6": ["n"]}))
+        self.assertNotIn("bind_address_ipv6", self.config()["ingress"])
+        self.run_setup(Answers(**{"Also publish Nginx over IPv6": ["y"], "Visitor URL": ["http://localhost:28080"]}))
+        self.assertEqual(self.config()["ingress"]["bind_address_ipv6"], "::1")
+        self.run_setup(Answers(**{"Ingress (": ["external"]}))
+        self.assertNotIn("bind_address_ipv6", self.config()["ingress"])
+
     def test_public_nat_url_is_independent_of_listening_port(self):
         answers = Answers(**{"Visitor URL": ["http://192.0.2.10:38080/"], "Nginx local HTTP port": ["0", "65536", "28080"]})
         self.run_setup(answers)

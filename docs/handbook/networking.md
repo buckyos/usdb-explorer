@@ -32,6 +32,8 @@
 | `--http-port` / `ingress.http_port` | **宿主机**发布的 bundled HTTP 端口，默认 28080，转到 Nginx 容器的 8080；HTTPS 模式下用于重定向 |
 | `ingress.https_port` | 宿主机发布的 bundled HTTPS 端口，默认 28443，转到容器的 8443；仅在 URL 为 HTTPS 时使用，目前无对应 CLI 选项 |
 | `--bind-address` / `ingress.bind_address` | 宿主机监听的 IPv4 地址，不是访问者地址；private 和 external ingress 都要求 loopback |
+| `--bind-address-ipv6` / `ingress.bind_address_ipv6` | bundled 模式可选的附加 IPv6 地址；`::` 监听全部 IPv6 接口，`::1` 仅回环；保留原 IPv4 入口，未配置则不启用 |
+| `--no-ipv6` | 删除附加 IPv6 监听配置；仍需 down、prepare --replace、up 才会生效 |
 | `ingress.exposure` | `private` 或 `public`；非 loopback 的 `--explorer-url` 会选择 public 并默认绑定 `0.0.0.0`；工具不会据此创建防火墙或 NAT 规则 |
 
 `--explorer-url` 不是单独的 Nginx 参数：前端也会把 API 请求发送到这个地址。它必须是 origin，
@@ -117,6 +119,49 @@ HTTP 请求会重定向到公布的 HTTPS origin；本机健康检查也应使�
 必须安装完整路由片段，不能只把整个域名代理到 frontend，也不能把 `/api/` 绕过网关直连 backend。
 当前 external ingress 强制 loopback 绑定，适用于宿主机 Nginx；独立桥接容器或另一台服务器
 无法用其自身的 `127.0.0.1` 访问这些端口。此类拓扑需要单独设计受控连接，不能直接照抄配置。
+
+## IPv4 与 IPv6 双栈入口
+
+安装包含双栈功能的新 release 后，运行 `usdb-explorer setup`，在 bundled 模式选择
+`Also publish Nginx over IPv6 = y`。已有 public 域名配置的同机部署也可执行：
+
+```bash
+usdb-explorer configure --local-node --bind-address-ipv6 ::
+usdb-explorer down
+usdb-explorer prepare --replace
+usdb-explorer preflight
+usdb-explorer up
+usdb-explorer check
+```
+
+这会保留现有域名、IPv4、HTTP/HTTPS 端口和水龙头配置，在相同端口增加 IPv6 入口。
+如果原配置为 private，使用 `::1`；也可显式绑定一个已分配给主机的稳定 IPv6 地址。
+地址不带方括号，暂不支持 link-local、带 zone ID、组播或 IPv4-mapped 地址。
+IPv6 地址的增删需要上述部署替换流程，让 Docker 重建入口网络；仅 reload Nginx 不足以生效。
+`down` 不加卷删除参数，数据库、水龙头钱包及账本保留。
+
+双栈配置同时为 Explorer 的 app 网络启用 Docker IPv6，并让 Nginx 监听 IPv6。
+这样 IPv6 请求可直接进入容器，Nginx 会覆盖转发头并传递实际连接地址，用于水龙头 IP 限流。
+数据库、节点私有 RPC 和水龙头签名服务不会因此新增宿主机公开端口。
+宿主机与 rootful Docker 必须支持 IPv6 bridge 和相应防火墙规则；不要关闭 Docker 的
+IPv6 防火墙管理来绕过启动错误。Docker 的网络与端口语义见
+[IPv6 bridge 说明](https://docs.docker.com/engine/network/drivers/bridge/#use-ipv6-in-a-user-defined-bridge-network)。
+
+公网访问还需管理员完成：域名 A/AAAA 分别指向正确的 IPv4/IPv6 地址，主机拥有可路由的
+公网 IPv6，路由器和主机防火墙允许该 IPv6 TCP 端口。IPv4 端口映射不会自动创建 IPv6
+放行规则；域名两种地址通常使用同一个 URL 端口。配置工具不会修改 DNS、路由器或系统防火墙。
+external 模式由外部反向代理管理双栈监听，不接受 `bind_address_ipv6`。
+
+`check` 在启用 IPv6 后增加 `loopback-ipv6`、`host-ipv6` 结果，并与 IPv4、公布域名分开报告。
+HTTPS 检查仍保留域名 Host/SNI 和证书校验。主机地址从对应默认路由接口探测；无可用地址时
+明确显示 SKIPPED，并不表示公网 IPv6 已通过。任一实际检查失败仍返回非零退出码。
+
+从有 IPv6 连接的外部机器分别验证（替换成真实域名）：
+
+```bash
+curl --noproxy '*' -4 --connect-timeout 5 --max-time 15 -fsS http://explorer.example.com:28080/network.json
+curl --noproxy '*' -6 --connect-timeout 5 --max-time 15 -fsS http://explorer.example.com:28080/network.json
+```
 
 ## 应用配置与证书续期
 

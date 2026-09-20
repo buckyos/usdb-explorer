@@ -142,6 +142,39 @@ class IngressComparisonTests(unittest.TestCase):
         self.assertEqual(targets[1]["connect_to"], ["192.168.1.119", 28443])
         self.assertNotIn("connect_to", targets[-1])
 
+    def test_dual_stack_checks_ipv6_independently_and_keeps_tls_origin(self):
+        self.config["ingress"].update(bind_address_ipv6="::", explorer_url="https://explorer.example.test")
+        discovery6 = mock.Mock(return_value=(["2001:db8::123"], None))
+        self.errors["loopback-ipv6"] = CHECK.RpcFailure("RPC_CONNECTION_REFUSED", "connection refused")
+        report = INGRESS.check_ingresses(self.config, self.identity, discover=self.discovery,
+                                        discover_ipv6=discovery6, upstream_check=self.upstream, probe=self.probe)
+        rows = {row["name"]: row for row in report["ingress_results"]}
+        self.assertEqual(report["status"], "CHECK_FAILED")
+        self.assertEqual(rows["loopback"]["status"], "PASSED")
+        self.assertEqual(rows["loopback-ipv6"]["status"], "FAILED")
+        self.assertEqual(rows["host-ipv6"]["url"], "https://[2001:db8::123]:28443")
+        self.assertEqual(rows["host-ipv6"]["connect_to"], ["2001:db8::123", 28443])
+        self.assertEqual(rows["host-ipv6"]["origin"], "https://explorer.example.test")
+        self.assertEqual(rows["configured"]["status"], "PASSED")
+
+    def test_ipv6_loopback_specific_and_missing_host_addresses_are_distinguished(self):
+        discovery6 = mock.Mock(return_value=([], "No usable IPv6 address found."))
+        for binding in ("::1", "2001:db8::123", "::"):
+            self.config["ingress"]["bind_address_ipv6"] = binding
+            targets, warnings = INGRESS.ingress_targets(self.config, discover=self.discovery, discover_ipv6=discovery6)
+            rows = {row["name"]: row for row in targets}
+            if binding == "::1":
+                self.assertEqual(rows["loopback-ipv6"]["url"], "http://[::1]:28080")
+                self.assertEqual(rows["host-ipv6"]["status"], "SKIPPED")
+                discovery6.assert_not_called()
+            elif binding == "::":
+                self.assertEqual(rows["host-ipv6"]["status"], "SKIPPED")
+                self.assertEqual(warnings, ["No usable IPv6 address found."])
+            else:
+                self.assertEqual(rows["loopback-ipv6"]["status"], "SKIPPED")
+                self.assertEqual(rows["host-ipv6"]["connect_to"], [binding, 28080])
+                discovery6.assert_not_called()
+
     def test_reachable_endpoints_and_fresh_block_index_lag_are_reported_separately(self):
         upstream = self.upstream(self.config, self.identity)
         target = {"name": "configured", "origin": self.config["ingress"]["explorer_url"]}
@@ -185,6 +218,18 @@ class IngressComparisonTests(unittest.TestCase):
             addresses, reason = INGRESS.host_addresses()
         self.assertEqual(addresses, [])
         self.assertIn("iproute2", reason)
+
+    def test_ipv6_discovery_excludes_tentative_link_local_and_docker_addresses(self):
+        def address(value, **flags):
+            return {"family": "inet6", "scope": "global", "local": value, **flags}
+        interfaces = [{"ifname": "vmbr0", "flags": ["UP"], "addr_info": [
+            address("2001:db8::2"), address("2001:db8::3", tentative=True),
+            address("2001:db8::4", flags=["dadfailed"]), address("fe80::1") ]},
+            {"ifname": "docker0", "flags": ["UP"], "addr_info": [address("fd00::1")]}]
+        with mock.patch.object(INGRESS.subprocess, "run", side_effect=[
+                mock.Mock(stdout=json.dumps([{"dev": "vmbr0"}])), mock.Mock(stdout=json.dumps(interfaces))]) as run:
+            self.assertEqual(INGRESS.host_addresses(version=6), (["2001:db8::2"], None))
+            self.assertTrue(all("-6" in call.args[0] for call in run.call_args_list))
 
     def test_cli_renders_all_results_and_returns_failure_in_human_and_json_modes(self):
         with tempfile.TemporaryDirectory() as directory:

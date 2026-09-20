@@ -79,7 +79,7 @@ def frontend(image):
            "NEXT_PUBLIC_APP_INSTANCE": "pw",
            "NEXT_PUBLIC_NETWORK_ID": "202608250", "NEXT_PUBLIC_IS_TESTNET": "true", "NEXT_PUBLIC_APP_HOST": "localhost",
            "NEXT_PUBLIC_APP_PROTOCOL": "http", "NEXT_PUBLIC_API_HOST": "localhost", "NEXT_PUBLIC_API_PROTOCOL": "http",
-           "NEXT_PUBLIC_API_BASE_PATH": "/", "NEXT_PUBLIC_NETWORK_RPC_URL": "http://localhost/rpc",
+           "NEXT_PUBLIC_API_BASE_PATH": "/", "NEXT_PUBLIC_API_WEBSOCKET_PROTOCOL": "ws", "NEXT_PUBLIC_NETWORK_RPC_URL": "http://localhost/rpc",
            "NEXT_PUBLIC_NETWORK_CURRENCY_NAME": "USDB", "NEXT_PUBLIC_NETWORK_CURRENCY_SYMBOL": "USDB",
            "NEXT_PUBLIC_NETWORK_CURRENCY_DECIMALS": "18", "NEXT_PUBLIC_HOMEPAGE_CHARTS": "[]",
            "NEXT_PUBLIC_HOMEPAGE_STATS": "[]", "NEXT_PUBLIC_AD_BANNER_PROVIDER": "none", "NEXT_PUBLIC_AD_TEXT_PROVIDER": "none",
@@ -113,6 +113,15 @@ def exercise(url, output):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         context = browser.new_context(viewport={"width": 1440, "height": 1100}, service_workers="block")
+        # Record construction as well as network events, including attempts that
+        # the browser rejects before opening a connection.
+        context.add_init_script("""window.__socketAttempts = [];
+          window.WebSocket = new Proxy(window.WebSocket, {
+            construct(target, args) {
+              window.__socketAttempts.push(String(args[0]));
+              return Reflect.construct(target, args);
+            }
+          });""")
         def route_request(route):
             target = route.request.url
             if "/api/faucet/v1/" in target:
@@ -148,10 +157,14 @@ def exercise(url, output):
         context.route("**/*", route_request)
         page = context.new_page()
         errors = []
+        sockets = []
         page.on("pageerror", lambda error: errors.append(str(error)))
+        page.on("websocket", lambda socket: sockets.append(socket.url))
         page.goto(url + "/usdb", wait_until="domcontentloaded")
         expect(page.get_by_role("heading", name="Network overview", exact=True)).to_be_visible()
         expect(page.get_by_text("2 blocks behind the observed chain head", exact=True)).to_be_visible()
+        assert not page.evaluate("window.__socketAttempts"), "Realtime is unavailable; WebSocket constructed"
+        assert not sockets, f"Realtime is unavailable; unexpected WebSocket attempts: {sockets}"
         page.get_by_role("button", name="Add network to wallet").click()
         expect(page.get_by_text("Open this page in a compatible wallet", exact=False)).to_be_visible()
         page.screenshot(path=str(output / "network-overview.png"), full_page=True)
@@ -244,6 +257,7 @@ def exercise(url, output):
         expect(page.get_by_text("This explorer does not currently offer a faucet.", exact=True)).to_be_visible()
         expect(page.get_by_role("button", name="Request test USDB", exact=True)).to_have_count(0)
         assert not errors, errors
+        assert not sockets, f"Page navigation attempted unavailable WebSockets: {sockets}"
         browser.close()
     print("Frontend browser checks passed: overview, passes, economics, faucet, idempotent retry, recovery, mobile, unavailable, reorg.")
 

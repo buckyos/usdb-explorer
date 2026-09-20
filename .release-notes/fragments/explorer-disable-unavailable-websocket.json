@@ -1,0 +1,25 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-disable-unavailable-websocket",
+  "type": "fixed",
+  "scopes": [
+    "explorer",
+    "deployment",
+    "documentation"
+  ],
+  "summary": "Stop frontend WebSocket connection attempts while public realtime channels are unavailable",
+  "details": [
+    "Keep the default socket context disconnected while public ingress rejects Phoenix channels, eliminating failed WebSocket handshakes and retries without exposing additional backend routes.",
+    "Preserve HTTP API queries, Overview polling and normal page navigation; this change does not qualify or enable realtime push."
+  ],
+  "operator_actions": [
+    "Install the new release and run down, prepare --replace, preflight and up to replace the frontend image, then hard-refresh the browser. Updating the CLI or advertised domain alone does not replace the running frontend."
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": true
+  },
+  "references": []
+}

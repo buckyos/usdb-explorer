@@ -77,6 +77,21 @@ def security_enforcement(network, requested=None):
     raise ValueError("unsupported network security policy")
 
 
+def ipv6_binding(value, exposure):
+    """Validate an optional bundled IPv6 listener without widening private exposure."""
+    if not isinstance(value, str):
+        raise ValueError("bind_address_ipv6 must be an IPv6 address without brackets or a zone ID")
+    try:
+        address = ipaddress.IPv6Address(value)
+    except ValueError:
+        raise ValueError("bind_address_ipv6 must be an IPv6 address without brackets or a zone ID") from None
+    if address.scope_id or address.ipv4_mapped or address.is_multicast or address.is_link_local:
+        raise ValueError("bind_address_ipv6 must be unicast, loopback or ::; scoped and IPv4-mapped addresses are unsupported")
+    if exposure == "private" and not address.is_loopback:
+        raise ValueError("private deployments must bind IPv6 loopback (::1)")
+    return str(address)
+
+
 def load_config(path, kit):
     """Normalize one private configuration without reading a node installation."""
     value = read_json(path)
@@ -120,7 +135,7 @@ def load_config(path, kit):
     if "transaction" in rpc and not HASH.fullmatch(str(rpc["transaction"])):
         raise ValueError("transaction must be an existing mined transaction hash")
     ingress = value["ingress"]
-    fields(ingress, {"mode", "explorer_url"}, {"bind_address", "web_port", "gateway_port", "http_port", "https_port", "tls", "exposure", "faucet_port"})
+    fields(ingress, {"mode", "explorer_url"}, {"bind_address", "bind_address_ipv6", "web_port", "gateway_port", "http_port", "https_port", "tls", "exposure", "faucet_port"})
     if ingress["mode"] not in {"external", "bundled"}:
         raise ValueError("ingress.mode must be external or bundled")
     ingress.setdefault("exposure", "private")
@@ -131,11 +146,15 @@ def load_config(path, kit):
     ingress.setdefault("bind_address", "127.0.0.1")
     address = ipaddress.ip_address(ingress["bind_address"])
     if address.version != 4:
-        raise ValueError("this deployment currently supports IPv4 host bindings")
+        raise ValueError("bind_address must be IPv4; use bind_address_ipv6 for an additional bundled IPv6 listener")
     if ingress["exposure"] == "private" and not address.is_loopback:
         raise ValueError("private deployments must bind loopback")
     if ingress["mode"] == "external" and not address.is_loopback:
         raise ValueError("external ingress requires loopback bindings behind the operator's proxy")
+    if "bind_address_ipv6" in ingress:
+        if ingress["mode"] != "bundled":
+            raise ValueError("bind_address_ipv6 is only supported by bundled ingress; configure IPv6 in your external proxy")
+        ingress["bind_address_ipv6"] = ipv6_binding(ingress["bind_address_ipv6"], ingress["exposure"])
     if ingress["exposure"] == "public":
         if origin.scheme != "https" and security_enforcement(value["network"]) == "strict":
             raise ValueError("public exposure requires HTTPS")
@@ -271,12 +290,25 @@ def nginx_config(config, *, external=False, proxy_token=None):
     if external:
         # Operators include only these locations inside an existing domain's server block.
         return "# Include inside the existing explorer server block; TLS and listeners remain operator-owned.\n" + routes
-    listen = "    listen 8080;\n"
+    http_listen = "    listen 8080;\n"
+    if ingress.get("bind_address_ipv6"):
+        http_listen += "    listen [::]:8080 ipv6only=on;\n"
+    listen = http_listen
     redirect = ""
     if origin.scheme == "https":
         listen = "    listen 8443 ssl;\n    ssl_certificate /tls/fullchain.pem;\n    ssl_certificate_key /tls/privkey.pem;\n    ssl_protocols TLSv1.2 TLSv1.3;\n"
-        redirect = f"server {{ listen 8080; server_name {origin.hostname}; return 308 {ingress['explorer_url']}$request_uri; }}\n"
+        if ingress.get("bind_address_ipv6"):
+            listen += "    listen [::]:8443 ssl ipv6only=on;\n"
+        redirect = f"server {{\n{http_listen}    server_name {origin.hostname}; return 308 {ingress['explorer_url']}$request_uri; }}\n"
     return f"events {{ worker_connections 512; }}\nhttp {{\nserver_tokens off;\n{redirect}server {{\n{listen}    server_name {origin.hostname};\n{routes}}}\n}}\n"
+
+
+def proxy_port_bindings(ingress, published, target):
+    """Publish the bundled proxy on explicit IPv4 and optional IPv6 addresses."""
+    ports = [f"{ingress['bind_address']}:{published}:{target}"]
+    if ingress.get("bind_address_ipv6"):
+        ports.append(f"[{ingress['bind_address_ipv6']}]:{published}:{target}")
+    return ports
 
 
 def compose_document(config, identity, lock, root):
@@ -325,7 +357,6 @@ def compose_document(config, identity, lock, root):
                 "NEXT_PUBLIC_NETWORK_CURRENCY_SYMBOL": "USDB", "NEXT_PUBLIC_NETWORK_CURRENCY_DECIMALS": "18",
                 "NEXT_PUBLIC_NETWORK_RPC_URL": ingress["explorer_url"] + "/rpc", "NEXT_PUBLIC_IS_TESTNET": "true",
                 "NEXT_PUBLIC_API_HOST": url.hostname, "NEXT_PUBLIC_API_PORT": str(url.port or ""), "NEXT_PUBLIC_API_PROTOCOL": url.scheme,
-                "NEXT_PUBLIC_API_WEBSOCKET_PROTOCOL": "wss" if url.scheme == "https" else "ws",
                 "NEXT_PUBLIC_APP_HOST": url.hostname, "NEXT_PUBLIC_APP_PORT": str(url.port or ""), "NEXT_PUBLIC_APP_PROTOCOL": url.scheme,
                 "NEXT_PUBLIC_API_BASE_PATH": "/", "NEXT_PUBLIC_HOMEPAGE_CHARTS": "[]", "NEXT_PUBLIC_HOMEPAGE_STATS": "[]",
                 "NEXT_PUBLIC_VIEWS_BLOCK_HIDDEN_FIELDS": '["burnt_fees","total_reward"]',
@@ -353,16 +384,20 @@ def compose_document(config, identity, lock, root):
         services["frontend"]["ports"] = [f"{binding}:{ingress['web_port']}:3000"]
         services["gateway"]["ports"] = [f"{binding}:{ingress['gateway_port']}:8080"]
     else:
-        ports = [f"{binding}:{ingress['http_port']}:8080"]
+        ports = proxy_port_bindings(ingress, ingress['http_port'], 8080)
         volumes = [f"{root}/nginx.conf:/etc/nginx/nginx.conf:ro"]
         if url.scheme == "https":
-            ports.append(f"{binding}:{ingress['https_port']}:8443")
+            ports.extend(proxy_port_bindings(ingress, ingress['https_port'], 8443))
             volumes.append(f"{ingress['tls']['certificate_dir']}:/tls:ro")
         services["proxy"] = service(images["nginx"], "128m", .25, networks=["app"], ports=ports, volumes=volumes,
             depends_on={name: {"condition": "service_started"} for name in ("frontend", "gateway")})
     document = {"name": config["deployment_id"], "services": services,
             "networks": {"database": {"internal": True}, "app": {}},
             "volumes": {"postgres-data": {"labels": database_labels}, "backend-data": {}}}
+    if ingress.get("bind_address_ipv6"):
+        # Native IPv6 avoids an IPv6-to-IPv4 userland proxy obscuring visitor IPs.
+        # Internal database, node relay and faucet networks remain private IPv4.
+        document["networks"]["app"]["enable_ipv6"] = True
     if config.get("faucet", {}).get("enabled"):
         policy = {key: value for key, value in config["faucet"].items() if key != "enabled"}
         policy.update(chain_id=str(identity["chain_id"]), genesis_hash=identity["genesis_block_hash"],
