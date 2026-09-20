@@ -46,11 +46,13 @@ def prepare(archive, destination):
                  "    const mainNavItems: ReturnType['mainNavItems'] = [",
                  """    const mainNavItems: ReturnType['mainNavItems'] = [
       {
-        text: 'USDB', icon: 'globe-b' as const, isActive: pathname === '/usdb' || pathname === '/usdb/passes' || pathname === '/usdb/economics',
+        text: 'USDB', icon: 'globe-b' as const,
+        isActive: pathname === '/usdb' || pathname === '/usdb/passes' || pathname === '/usdb/economics' || pathname === '/usdb/faucet',
         subItems: [
           { text: 'Network overview', nextRoute: { pathname: '/usdb' as const }, icon: 'globe-b' as const, isActive: pathname === '/usdb' },
           { text: 'Miner Passes', nextRoute: { pathname: '/usdb/passes' as const }, icon: 'block' as const, isActive: pathname === '/usdb/passes' },
           { text: 'Block economics', nextRoute: { pathname: '/usdb/economics' as const }, icon: 'block' as const, isActive: pathname === '/usdb/economics' },
+          { text: 'Testnet faucet', nextRoute: { pathname: '/usdb/faucet' as const }, icon: 'globe-b' as const, isActive: pathname === '/usdb/faucet' },
         ],
       },""")
     for name, marker, value in (
@@ -61,10 +63,11 @@ def prepare(archive, destination):
     ):
         passes_value = "'%network_name% Miner Passes'" if "title.ts" in name else value
         economics_value = "'%network_name% block economics'" if "title.ts" in name else value
-        replace_once(destination, name, marker, marker + "\n  '/usdb': " + value + ",\n  '/usdb/passes': " + passes_value + ",\n  '/usdb/economics': " + economics_value + ",")
+        faucet_value = "'%network_name% testnet faucet'" if "title.ts" in name else value
+        replace_once(destination, name, marker, marker + "\n  '/usdb': " + value + ",\n  '/usdb/passes': " + passes_value + ",\n  '/usdb/economics': " + economics_value + ",\n  '/usdb/faucet': " + faucet_value + ",")
     # Next checks types before the routes plugin regenerates its declarations.
     replace_once(destination, "nextjs/nextjs-routes.d.ts", "  export type Route =",
-                 '  export type Route =\n    | StaticRoute<"/usdb">\n    | StaticRoute<"/usdb/passes">\n    | StaticRoute<"/usdb/economics">')
+                 '  export type Route =\n    | StaticRoute<"/usdb">\n    | StaticRoute<"/usdb/passes">\n    | StaticRoute<"/usdb/economics">\n    | StaticRoute<"/usdb/faucet">')
     replace_once(destination, "ui/pages/Block.tsx", "          <BlockDetails query={ blockQuery }/>",
                  """          <BlockDetails query={ blockQuery }/>
           { blockQuery.data?.hash && !blockQuery.isPlaceholderData && <p style={{ marginTop: 20 }}>

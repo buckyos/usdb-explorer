@@ -2,7 +2,7 @@
 
 This directory owns the small USDB overlay for the pinned Blockscout frontend.
 It adds the `USDB` navigation group, `/usdb` network overview, `/usdb/passes`, and
-`/usdb/economics`. The ordinary block detail page links to hash-bound economics.
+`/usdb/economics`, and the optional `/usdb/faucet` claim page. The ordinary block detail page links to hash-bound economics.
 Economic amounts come from the bounded gateway API; the frontend does not reproduce consensus formulas.
 
 `upstream.lock.json` pins the source commit and archive SHA-256. `prepare.py`
@@ -34,8 +34,9 @@ frontend during `up`; release installations pull the prebuilt immutable image.
 The archive/lockfile/base image pins identify inputs; they do not promise
 bit-for-bit reproducibility of third-party package lifecycle scripts.
 
-All new pages call same-origin GET endpoints under `/api/usdb/v1/`; they never
-contact the private indexer. Browser fixtures use an isolated container and
+The read-only USDB pages call same-origin GET endpoints under `/api/usdb/v1/`;
+the faucet uses `/api/faucet/v1/` for status and fixed-policy claim submissions.
+Neither contacts the private indexer or receives signing keys. Browser fixtures use an isolated container and
 intercept public API responses, so they do not require a node or mining keys.
 
 The release pipeline publishes `usdb-explorer-frontend` with the Explorer tag,

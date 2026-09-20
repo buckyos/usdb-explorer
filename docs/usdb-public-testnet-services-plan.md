@@ -161,6 +161,11 @@ chain ID `0xc138e7a`、名称 `USDB Testnet`、原生代币 `USDB` / 18 位、�
 
 ## 6. 第二阶段：水龙头
 
+首版已在本分支实现为可选容器与 `/usdb/faucet` 页面，实际操作见
+[水龙头手册](handbook/faucet.md)，接口见 [Faucet API](faucet-api.md)。账户首次启动自动生成，
+矿工补款由一次性 `faucet fund` 命令触发；验证码、邀请、自动加价和定时补款暂缓。
+下文保留阶段设计目标，不代表所有增强能力均已验收。
+
 推荐独立小服务，浏览器导航接入“领取测试币”。Blockscout 支持配置
 [Get gas 外链入口](https://docs.blockscout.com/setup/env-variables/frontend-common-envs/envs#get-gas-button)，
 因此视觉上可以统一，签名和领取队列独立部署。

@@ -10,7 +10,8 @@ def trivy_report(reference, revision, name="gateway"):
                 "Class": "lang-pkgs" if name == "gateway" else "os-pkgs",
                 "Type": "gobinary" if name == "gateway" else "alpine",
                 "Vulnerabilities": [{"VulnerabilityID": "CVE-2099-0001", "PkgName": "fixture-package",
-                    "InstalledVersion": "1.0", "FixedVersion": "1.1", "Severity": "HIGH"}]}]}
+                    "InstalledVersion": "1.0", "FixedVersion": "1.1", "Severity": "HIGH"}]}]
+                + ([{"Target": "faucet", "Class": "lang-pkgs", "Type": "gobinary", "Vulnerabilities": []}] if name == "gateway" else [])}
 
 
 def trivy_sarif():

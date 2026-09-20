@@ -94,6 +94,12 @@ class ImageSecurityTests(unittest.TestCase):
                 self.assertEqual(decision["review_result"], "findings")
                 self.assertEqual(decision["result"], "pass" if mode == "report-only" else "fail")
 
+    def test_gateway_image_must_cover_the_faucet_signing_binary(self):
+        report = trivy_report(GATEWAY, self.revision)
+        report["Results"] = [row for row in report["Results"] if row["Target"] != "faucet"]
+        with self.assertRaisesRegex(ValueError, "faucet Go binary coverage"):
+            SECURITY.evaluate(report, self.identity())
+
     def test_wrong_digest_platform_revision_or_missing_coverage_block_report_only(self):
         original = trivy_report(GATEWAY, self.revision)
         changed = []

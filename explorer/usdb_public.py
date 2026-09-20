@@ -16,7 +16,7 @@ import sys
 import tempfile
 
 from public_config import (GIB, compose_document, container_rpc, endpoint, image_lock, load_config,
-                           local_rpc_config, nginx_config, read_json, security_enforcement, wallet_network)
+                           local_rpc_config, nginx_config, read_json, security_enforcement, wallet_network, faucet_token)
 from public_checks import ReadRpc, check_explorer, identity_check, preflight, same_checkpoint
 
 KIT = Path(__file__).resolve().parent
@@ -210,7 +210,7 @@ def prepare(config_path, root, *, replace=False, credentials_file=None, kit=KIT)
         text = json.dumps(doc).replace(str(staging), str(root))
         write_json(staging / "compose.json", json.loads(text))
         for name, external in (("nginx.conf", False), ("nginx.locations.conf", True)):
-            (staging / name).write_text(nginx_config(config, external=external))
+            (staging / name).write_text(nginx_config(config, external=external, proxy_token=faucet_token(credentials)))
         if config["rpc"]["mode"] == "local-node":
             for name, host in (("rpc-host.conf", True), ("rpc-relay.conf", False)):
                 (staging / name).write_text(local_rpc_config(config, host=host))
@@ -381,6 +381,8 @@ def print_failure(args, message, *, category=None):
 def parser():
     result = argparse.ArgumentParser(description="Operate standalone USDB explorer and public RPC services")
     actions = result.add_subparsers(dest="command", required=True)
+    from faucet_cli import add_parser
+    add_parser(actions)
     for name in ("configure", "prepare", "up", "down", "status", "check", "preflight", "logs", "reload-proxy"):
         action = actions.add_parser(name)
         action.add_argument("--state-dir", type=Path, default=Path.home() / ".config/usdb-public/default",
@@ -409,6 +411,9 @@ def parser():
 
 
 def execute(args, root):
+    if args.command == "faucet":
+        from faucet_cli import execute as faucet_execute
+        return faucet_execute(args, root)
     if args.command == "configure":
         configure(args)
         return 0
@@ -470,7 +475,7 @@ def main(argv=None):
     args = parser().parse_args(argv)
     try:
         root = safe_directory(args.state_dir)
-        if args.command == "configure":
+        if args.command == "configure" or (args.command == "faucet" and args.faucet_command == "configure"):
             with operation_lock(safe_directory(args.config)):
                 return execute(args, root)
         if args.command in {"prepare", "up", "down", "reload-proxy"}:

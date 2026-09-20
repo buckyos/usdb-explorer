@@ -27,7 +27,7 @@ explorer/usdb-explorer prepare --config /path/to/config.json --state-dir /path/t
 | --- | --- |
 | `explorer/` | 部署控制、安装器、网络 catalog/contract、第三方镜像 lock |
 | `frontend/` | 固定 Blockscout 源码上的 USDB 导航、网络概览和矿工证查询；独立构建与镜像发布 |
-| `gateway/` | 独立 Go module：公共 RPC 策略与浏览器 API 适配 |
+| `gateway/` | 独立 Go module：公共 RPC、浏览器 API，以及独立进程运行的可选水龙头 |
 | `scripts/prepare_release.py` | 本仓库的 annotated tag 准备工具 |
 | `.github/workflows/` | 独立 CI、构建草稿、手动 Publish |
 | `scripts/image_security.py` | 固定 digest 的镜像扫描计划、证据校验与可选强制门禁 |
@@ -48,6 +48,9 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py'
 cd gateway
 go test -race ./...
 ```
+
+可选水龙头的账户、限额和一次性矿工补款命令见 [水龙头手册](docs/handbook/faucet.md)。
+容器验收使用 `python3 tests/test_faucet_containers.py --image <gateway-test-image>`，只连接隔离模拟链。
 
 ## 发布
 

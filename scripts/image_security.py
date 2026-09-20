@@ -106,11 +106,14 @@ def evaluate(report, identity):
     require(isinstance(targets, list) and targets, "report has no scan targets")
     counts, unresolved = Counter({level: 0 for level in SEVERITIES}), []
     gateway_covered = False
+    faucet_covered = False
     for target in targets:
         require(isinstance(target, dict) and all(isinstance(target.get(key), str) and target[key]
                 for key in ("Target", "Class", "Type")), "malformed scan target")
         gateway_covered |= (target["Class"] == "lang-pkgs" and target["Type"] == "gobinary"
                             and target["Target"].lstrip("/") == "gateway")
+        faucet_covered |= (target["Class"] == "lang-pkgs" and target["Type"] == "gobinary"
+                           and target["Target"].lstrip("/") == "faucet")
         findings = target.get("Vulnerabilities", [])
         require(isinstance(findings, list), "malformed vulnerabilities array")
         for finding in findings:
@@ -124,6 +127,7 @@ def evaluate(report, identity):
                                    "package": finding["PkgName"], "version": finding["InstalledVersion"],
                                    "severity": level, "fixed_version": finding.get("FixedVersion", "")})
     require(identity["name"] != "gateway" or gateway_covered, "gateway Go binary coverage is missing")
+    require(identity["name"] != "gateway" or faucet_covered, "faucet Go binary coverage is missing")
     return {"enforcement": mode, "raw_counts": dict(sorted(counts.items())), "accepted_count": 0,
             "unresolved_count": len(unresolved), "unresolved": unresolved,
             "review_result": "findings" if unresolved else "clean",

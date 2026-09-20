@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ipaddress
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -79,7 +80,9 @@ def security_enforcement(network, requested=None):
 def load_config(path, kit):
     """Normalize one private configuration without reading a node installation."""
     value = read_json(path)
-    fields(value, {"schema_version", "deployment_id", "network", "rpc", "ingress"}, {"resources"})
+    fields(value, {"schema_version", "deployment_id", "network", "rpc", "ingress"}, {"resources", "faucet"})
+    from faucet_config import validate_faucet
+    validate_faucet(value)
     if value["schema_version"] != CONFIG_SCHEMA or not re.fullmatch(r"[a-z][a-z0-9-]{1,47}", str(value["deployment_id"])):
         raise ValueError("invalid public configuration schema or deployment_id")
     if not re.fullmatch(r"usdb-testnet-v[0-9]+", str(value["network"])):
@@ -117,7 +120,7 @@ def load_config(path, kit):
     if "transaction" in rpc and not HASH.fullmatch(str(rpc["transaction"])):
         raise ValueError("transaction must be an existing mined transaction hash")
     ingress = value["ingress"]
-    fields(ingress, {"mode", "explorer_url"}, {"bind_address", "web_port", "gateway_port", "http_port", "https_port", "tls", "exposure"})
+    fields(ingress, {"mode", "explorer_url"}, {"bind_address", "web_port", "gateway_port", "http_port", "https_port", "tls", "exposure", "faucet_port"})
     if ingress["mode"] not in {"external", "bundled"}:
         raise ValueError("ingress.mode must be external or bundled")
     ingress.setdefault("exposure", "private")
@@ -143,6 +146,12 @@ def load_config(path, kit):
         if type(ingress[key]) is not int or not 1 <= ingress[key] <= 65535:
             raise ValueError(f"invalid ingress port: {key}")
     ports = [ingress["web_port"], ingress["gateway_port"]] if ingress["mode"] == "external" else [ingress["http_port"]]
+    if value.get("faucet", {}).get("enabled"):
+        ingress.setdefault("faucet_port", 28083)
+        if type(ingress["faucet_port"]) is not int or not 1 <= ingress["faucet_port"] <= 65535:
+            raise ValueError("invalid ingress port: faucet_port")
+        if ingress["mode"] == "external":
+            ports.append(ingress["faucet_port"])
     if ingress["mode"] == "bundled" and origin.scheme == "https":
         ports.append(ingress["https_port"])
         tls = ingress.get("tls", {})
@@ -213,7 +222,12 @@ def wallet_network(config, identity):
             "rpcUrls": [origin + "/rpc"], "blockExplorerUrls": [origin]}
 
 
-def nginx_config(config, *, external=False):
+def faucet_token(credentials):
+    """Authenticate the ingress's overwritten IP header without storing another operator secret."""
+    return hashlib.sha256(b"usdb-faucet-proxy-v1:" + credentials["backend"].encode()).hexdigest()
+
+
+def nginx_config(config, *, external=False, proxy_token=None):
     """Generate the same protected routing for an existing server or the optional container."""
     ingress = config["ingress"]
     origin = endpoint(ingress["explorer_url"], origin=True)
@@ -239,6 +253,21 @@ def nginx_config(config, *, external=False):
     location /socket {{ return 404; }}
     location / {{ proxy_pass $usdb_frontend$request_uri; }}
 """
+    if config.get("faucet", {}).get("enabled"):
+        if not re.fullmatch(r"[0-9a-f]{64}", proxy_token or ""):
+            raise ValueError("faucet ingress requires its private proxy token")
+        upstream = f"{host}:{ingress['faucet_port']}" if external else "faucet:8080"
+        routes += f"""    set $usdb_faucet http://{upstream};
+    location ^~ /api/faucet/v1/ {{
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-USDB-Faucet-Proxy {proxy_token};
+        proxy_pass $usdb_faucet$request_uri;
+    }}
+"""
+    else:
+        routes += '    location ^~ /api/faucet/v1/ { default_type application/json; add_header Cache-Control "no-store"; return 200 \'{"enabled":false,"status":"disabled"}\'; }\n'
     if external:
         # Operators include only these locations inside an existing domain's server block.
         return "# Include inside the existing explorer server block; TLS and listeners remain operator-owned.\n" + routes
@@ -334,6 +363,31 @@ def compose_document(config, identity, lock, root):
     document = {"name": config["deployment_id"], "services": services,
             "networks": {"database": {"internal": True}, "app": {}},
             "volumes": {"postgres-data": {"labels": database_labels}, "backend-data": {}}}
+    if config.get("faucet", {}).get("enabled"):
+        policy = {key: value for key, value in config["faucet"].items() if key != "enabled"}
+        policy.update(chain_id=str(identity["chain_id"]), genesis_hash=identity["genesis_block_hash"],
+                      read_url=rpc["read_url"], broadcast_url=rpc["broadcast_url"],
+                      origin=ingress["explorer_url"], proxy_token=faucet_token(credentials))
+        document["networks"]["faucet"] = {"internal": True}
+        document["volumes"]["faucet-data"] = {"labels": {"io.usdb.genesis": identity["genesis_block_hash"]}}
+        services["faucet"] = service(services["gateway"]["image"], "256m", .5,
+            entrypoint=["/faucet"], command=["serve"], networks=["faucet"],
+            environment={"FAUCET_CONFIG": json.dumps(policy)},
+            volumes=["faucet-data:/data"], read_only=True, cap_drop=["ALL"],
+            tmpfs=["/tmp:size=16m,mode=1777"], extra_hosts=["host.docker.internal:host-gateway"],
+            stop_grace_period="30s")
+        if "build" in services["gateway"]:
+            services["faucet"]["build"] = dict(services["gateway"]["build"])
+        # Docker host port publishing requires a non-internal network, including
+        # when an external ingress fronts a colocated node's private RPC relay.
+        if rpc["mode"] != "local-node" or ingress["mode"] == "external":
+            document["networks"]["faucet-outbound"] = {}
+            services["faucet"]["networks"].append("faucet-outbound")
+        if ingress["mode"] == "external":
+            services["faucet"]["ports"] = [f"{binding}:{ingress['faucet_port']}:8080"]
+        else:
+            services["proxy"]["networks"].append("faucet")
+            services["proxy"]["depends_on"]["faucet"] = {"condition": "service_started"}
     if rpc.get("mode") == "local-node":
         document["networks"]["rpc"] = {"internal": True}
         document["volumes"]["rpc-socket"] = {}
@@ -350,7 +404,7 @@ def compose_document(config, identity, lock, root):
         services["rpc-relay"].update(networks=["rpc"], depends_on={"rpc-host": {"condition": "service_healthy"}},
             healthcheck={"test": ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"],
                          "interval": "2s", "timeout": "2s", "retries": 15})
-        for name in ("backend", "gateway"):
+        for name in ("backend", "gateway", *(("faucet",) if "faucet" in services else ())):
             services[name]["networks"].append("rpc")
             services[name].pop("extra_hosts")
             services[name].setdefault("depends_on", {})["rpc-relay"] = {"condition": "service_healthy"}

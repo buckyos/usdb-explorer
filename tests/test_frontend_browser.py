@@ -109,12 +109,34 @@ def exercise(url, output):
     from playwright.sync_api import sync_playwright, expect
     mode = {"value": "ready"}
     requests = []
+    faucet = {"status": "ready", "claim_status": "queued", "applications": []}
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         context = browser.new_context(viewport={"width": 1440, "height": 1100}, service_workers="block")
         def route_request(route):
             target = route.request.url
-            if "/api/usdb/v1/" in target:
+            if "/api/faucet/v1/" in target:
+                resource = target.split("/api/faucet/v1/", 1)[1]
+                if resource == "status":
+                    route.fulfill(json={"enabled": faucet["status"] != "disabled", "status": faucet["status"],
+                        "address": "0x" + "22" * 20, "claim_amount": "1", "daily_budget": "100", "cooldown_seconds": 86400, "confirmations": 3})
+                elif route.request.method == "POST":
+                    application = route.request.post_data_json
+                    faucet["applications"].append(application)
+                    if faucet.get("lose_response"):
+                        faucet["lose_response"] = False
+                        route.abort()
+                    elif faucet.get("reject"):
+                        route.fulfill(status=429, json={"error": {"code": faucet["reject"]}})
+                    else:
+                        route.fulfill(status=202, json={"id": "c_" + application["request_id"], "address": application["address"], "status": "queued"})
+                elif faucet["applications"]:
+                    application = faucet["applications"][-1]
+                    route.fulfill(json={"id": "c_" + application["request_id"], "address": application["address"],
+                                        "status": faucet["claim_status"], "transaction_hash": "0x" + HASH})
+                else:
+                    route.fulfill(status=404, json={"error": {"code": "NOT_FOUND"}})
+            elif "/api/usdb/v1/" in target:
                 resource = target.split("/api/usdb/v1/", 1)[1]
                 requests.append(resource)
                 status, body = response(resource, mode["value"])
@@ -188,9 +210,42 @@ def exercise(url, output):
         page.get_by_role("button", name="Verify block", exact=True).click()
         expect(page.get_by_text("Genesis has no mined block reward", exact=False)).to_be_visible()
         expect(page.get_by_role("heading", name="New emission", exact=True)).to_have_count(0)
+        page.set_viewport_size({"width": 1440, "height": 1100})
+        page.goto(url + "/usdb/faucet", wait_until="domcontentloaded")
+        expect(page.get_by_role("heading", name="Testnet faucet", exact=True)).to_be_visible()
+        expect(page.get_by_role("button", name="Request test USDB", exact=True)).to_be_enabled()
+        page.get_by_label("Receiving address", exact=True).fill(PROFILE["usdb_main"])
+        faucet["lose_response"] = True
+        page.get_by_role("button", name="Request test USDB", exact=True).click()
+        expect(page.locator('section [role="alert"]')).to_contain_text("Retry the same application")
+        page.get_by_role("button", name="Retry same application", exact=True).click()
+        expect(page.get_by_text("Queued for transfer", exact=True)).to_be_visible()
+        assert faucet["applications"][0] == faucet["applications"][1], "retry created another application"
+        page.screenshot(path=str(output / "faucet.png"), full_page=True)
+        faucet["claim_status"] = "confirmed"
+        page.reload(wait_until="domcontentloaded")
+        expect(page.get_by_text("Test USDB delivered", exact=True)).to_be_visible()
+        expect(page.get_by_role("link", name="View transfer in explorer")).to_have_attribute("href", "/tx/0x" + HASH)
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.screenshot(path=str(output / "faucet-mobile.png"), full_page=True)
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "faucet horizontal overflow"
+        page.get_by_role("button", name="Use another address", exact=True).click()
+        faucet["reject"] = "ADDRESS_COOLDOWN"
+        page.get_by_label("Receiving address", exact=True).fill(PROFILE["usdb_main"])
+        page.get_by_role("button", name="Request test USDB", exact=True).click()
+        expect(page.locator('section [role="alert"]')).to_contain_text("cooldown")
+        page.get_by_role("button", name="Use another address", exact=True).click()
+        faucet["status"] = "INSUFFICIENT_FUNDS"
+        page.reload(wait_until="domcontentloaded")
+        expect(page.get_by_text("The faucet needs a refill.", exact=False)).to_be_visible()
+        expect(page.get_by_role("button", name="Request test USDB", exact=True)).to_be_disabled()
+        faucet["status"] = "disabled"
+        page.reload(wait_until="domcontentloaded")
+        expect(page.get_by_text("This explorer does not currently offer a faucet.", exact=True)).to_be_visible()
+        expect(page.get_by_role("button", name="Request test USDB", exact=True)).to_have_count(0)
         assert not errors, errors
         browser.close()
-    print("Frontend browser checks passed: overview, passes, economics, precision, pagination, mobile, genesis, empty, unavailable, reorg.")
+    print("Frontend browser checks passed: overview, passes, economics, faucet, idempotent retry, recovery, mobile, unavailable, reorg.")
 
 
 def main():

@@ -4,6 +4,9 @@
 `local-node` 与 `bundled` 的独立含义、公布地址和监听端口、域名/HTTPS 操作步骤见
 [部署模式与访问地址](../docs/handbook/networking.md)。
 
+可选测试网水龙头、自动生成账户、限额和 `faucet fund` 一次性矿工补款命令见
+[水龙头手册](../docs/handbook/faucet.md)。该服务默认关闭，使用独立持久卷保存钱包和领取账本。
+
 此目录提供独立的 `usdb-explorer` 工具和发布通道，并保留 `usdb-public` 兼容命令。
 新安装默认连接同机 USDB 的 `http://127.0.0.1:8545`，与 `usdb-node` 默认 Docker 部署配合使用。
 上游仍须显式启用 archive 和私有 tracing；普通节点的默认配置不满足完整浏览器的历史查询要求。

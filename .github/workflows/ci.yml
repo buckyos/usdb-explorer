@@ -37,6 +37,7 @@ jobs:
           python3 tests/test_public_services.py
           python3 tests/test_preflight_diagnostics.py
           python3 tests/test_local_deployment.py
+          python3 tests/test_faucet.py
           python3 tests/test_public_installer.py
           python3 tests/test_public_release_publish.py
           python3 tests/test_network_contract.py
@@ -50,6 +51,15 @@ jobs:
           explorer/usdb-public --help
       - name: Exercise optional Nginx routing, HTTPS and reload in isolated containers
         run: python3 tests/test_public_ingress.py
+      - name: Build the signer and verify faucet persistence with an isolated fake chain
+        run: |
+          python3 - <<'PYTHON'
+          import json, subprocess
+          go_image = json.load(open('explorer/assets/images.lock.json'))['images']['go']['reference']
+          subprocess.run(['docker', 'build', '--build-arg', 'GO_IMAGE=' + go_image,
+                          '-f', 'explorer/assets/Dockerfile.gateway', '-t', 'usdb-explorer-gateway:ci', '.'], check=True)
+          subprocess.run(['python3', 'tests/test_faucet_containers.py', '--image', 'usdb-explorer-gateway:ci'], check=True)
+          PYTHON
 
   frontend:
     runs-on: ubuntu-24.04

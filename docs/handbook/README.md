@@ -7,6 +7,7 @@
 | --- | --- |
 | 查看网络概览、查询矿工证、接入 BTC 索引器 | [USDB 专页](usdb-pages.md) |
 | 核验区块奖励、手续费分账与历史矿工证 | [区块经济明细与验收](block-economics.md) |
+| 领取测试币、启用水龙头、矿工补款与恢复 | [测试网水龙头](faucet.md) |
 | 查区块、交易、地址，理解空链和数据延迟 | [使用浏览器](using-explorer.md) |
 | 安装 Explorer、连接同机节点、配置局域网或公网入口 | [安装与接入](installation.md) |
 | 理解 local-node/bundled、外部 Nginx、端口映射、域名和 HTTPS | [部署模式与访问地址](networking.md) |
@@ -24,6 +25,7 @@
 | 首节点 genesis 阶段启动、`--auto-samples` | v0.2.4 起 |
 | USDB 网络概览、矿工证列表与历史查询 | 本分支新增，需后续 release |
 | USDB 区块经济明细、逐块重放核验 | 本分支新增；需同时升级 USDB-chain 与 Explorer |
+| 可选水龙头、持久额度与矿工账户一次性补款 | 本分支新增，需后续 release；默认关闭 |
 | 人类可读的 preflight/check 结果、`--json`、`check --url` | 本分支新增；安装包含此变更的后续 release 后使用 |
 
 运行 `usdb-explorer preflight --help`、`usdb-explorer check --help` 核对已安装命令。

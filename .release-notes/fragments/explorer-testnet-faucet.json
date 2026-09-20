@@ -1,0 +1,26 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-testnet-faucet",
+  "type": "added",
+  "scopes": ["explorer", "deployment", "security", "documentation"],
+  "summary": "Add an optional testnet faucet with a dedicated wallet and recoverable miner-funded refills",
+  "details": [
+    "Add a Testnet faucet page and isolated signer process, disabled by default, with an automatically generated wallet preserved in its own Docker volume across restarts and deployment replacement.",
+    "Persist address cooldowns, per-IP limits and per-instance UTC daily reservations including maximum transaction fees; pause for insufficient funds, wrong network identity or unsafe transaction state.",
+    "Persist signed transactions before broadcast and reuse them after uncertainty or restart; only report delivery after canonical receipts reach the configured confirmation depth.",
+    "Add faucet configure, status and fund commands. Funding accepts a miner key through hidden input or a named environment variable, passes it on stdin to a one-shot command and never stores it in the ledger; retries use the saved transaction and recovery ID without the key.",
+    "Keep signing separate from the public gateway, authenticate the ingress which supplies client IPs, and require release image scan coverage for both gateway and faucet binaries. CAPTCHA, scheduled refills, automatic fee replacement and shared cross-instance quotas remain deferred."
+  ],
+  "operator_actions": [
+    "Upgrade Explorer and run down followed by prepare --replace and up to apply the new image and routes; existing configurations leave the faucet disabled.",
+    "To opt in, run faucet configure --enable with explicit claim-amount and daily-budget, re-prepare the deployment, inspect faucet status and fund its dedicated address.",
+    "Back up the complete faucet-data volume, including its wallet and ledger, while stopped. External ingress operators must apply the regenerated private Nginx locations."
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": true
+  },
+  "references": []
+}

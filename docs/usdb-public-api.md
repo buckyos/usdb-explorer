@@ -6,6 +6,10 @@ All routes accept GET only. Responses use `schema_version: usdb-explorer-public:
 same-origin requests. No private indexer method is added to the public JSON-RPC
 allowlist.
 
+The optional faucet uses a separate signer process and `/api/faucet/v1/` routes;
+its claim POST does not change this read API or the gateway RPC allowlist.
+See [Faucet API](faucet-api.md) and [operator handbook](handbook/faucet.md).
+
 | Route | Query | Result |
 | --- | --- | --- |
 | `/overview` | none | Public wallet/network identity, USDB head, Blockscout indexed height and indexer readiness |
