@@ -1,0 +1,22 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-wallet-network-setup-diagnostics",
+  "type": "fixed",
+  "scopes": ["explorer", "documentation"],
+  "summary": "Explain wallet HTTPS requirements and distinguish add-network failures",
+  "details": [
+    "The USDB overview explains missing or invalid network URLs and the HTTPS requirement for public RPC and Explorer addresses before requesting automatic wallet setup. Network details remain visible and localhost HTTP development endpoints remain supported.",
+    "The overview and the original Blockscout add-network button share validation, protection against concurrent requests and safe diagnostics for cancellation, pending requests, unsupported methods, permissions, disconnected wallets and rejected parameters. Unknown errors no longer display raw wallet payloads or imply that manual entry will bypass HTTPS checks.",
+    "Overview displays a pending state while the wallet request is open, then reports success or the applicable failure. This frontend change does not configure TLS, rewrite RPC URLs or change node services."
+  ],
+  "operator_actions": [
+    "Install the release, then run usdb-explorer down, prepare --replace, preflight and up to replace the frontend image. Refresh the browser afterward."
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": true
+  },
+  "references": []
+}

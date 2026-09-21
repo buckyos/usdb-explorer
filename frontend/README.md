@@ -25,6 +25,13 @@ modified frontend is reconstructed with the pinned upstream archive and this
 public repository's `frontend/` directory at the image's OCI source revision.
 No changes to the upstream backend are required.
 
+`overlay/lib/web3/networkAddFeedback.ts` shares URL validation, in-flight request
+protection and safe wallet-error messages between the USDB overview and the
+upstream add-network button. `prepare.py` applies checked patches to the upstream
+add-chain hook and toast handler. Public HTTP URLs are diagnosed before invoking
+the provider; localhost HTTP remains available for development. No URL rewriting,
+account access, signing or broadcasting is introduced by these checks.
+
 ```bash
 node_image=$(python3 -c 'import json; print(json.load(open("explorer/assets/images.lock.json"))["images"]["node"]["reference"])')
 docker build --build-arg NODE_IMAGE="$node_image" -f frontend/Dockerfile -t usdb-explorer-frontend:development .

@@ -23,6 +23,31 @@ USDB 高度和 BTC 高度属于两条链，不能互相比较。页面每 15 秒
 请求钱包添加网络，也可手动复制参数。私有 read/trace/indexer URL 不会作为公开网络资料返回。
 此操作不请求私钥、签名或转账。
 
+自动添加网络需要钱包接受公开的 RPC 和 Explorer 地址。MetaMask 要求这些公网地址使用
+**HTTPS**；`http://localhost` 和 `http://127.0.0.1` 是本机开发例外，普通局域网 IP 或测试网域名
+不属于例外。HTTP 入口仍可浏览区块和 USDB 页面，但不能据此认为钱包自动添加也能成功。
+
+包含钱包提示改进的版本，会在发现公开 HTTP 地址时直接说明 HTTPS 要求并暂停 Overview 的
+自动添加按钮，保留网络参数供查看。底部原有的添加钱包按钮使用相同检查。管理员应按
+[HTTPS 配置指南](networking.md#内置-nginx-提供-https)配置实际的 TLS 入口、证书和公布 URL，再应用配置；
+只把地址文字改成 `https://` 或反复点击按钮不能完成这一步。
+
+| 钱包提示 | 含义与处理 |
+| --- | --- |
+| `HTTPS public RPC URL` / `HTTPS public Explorer URL` | 公布的公网地址仍是 HTTP；联系管理员配置 HTTPS |
+| `No compatible wallet was detected` | 在启用钱包的浏览器中打开页面，或进入钱包自身的网络设置 |
+| `Waiting for wallet…` | 请求已发出，打开钱包查看；当前按钮暂时不可重复提交 |
+| `cancelled in your wallet` | 钱包报告用户取消；需要时可重新发起 |
+| `already pending` | 钱包仍有待处理请求；先在钱包中确认或拒绝该请求 |
+| `does not support automatic network setup` | 钱包不支持此接口；换用兼容钱包或使用钱包的网络设置 |
+| `not authorized` | 检查钱包对当前网站的连接权限 |
+| `disconnected` | 检查钱包连接状态和公共 RPC 的可达性 |
+| `rejected the network settings` | 钱包拒绝网络参数；与管理员核对 RPC URL、Chain ID 和币种 |
+| `could not complete the network request` | 未能确定具体原因；查看钱包内的提示，持续失败时联系管理员 |
+
+成功提示表示网络已在钱包中可用；Overview 不替用户切换网络，需要在钱包内自行选择。
+手动添加也受钱包自身的地址校验约束，不能保证绕过 HTTPS 要求。
+
 ## 矿工证浏览与查询
 
 **USDB → Miner Passes**（`/usdb/passes`）默认按有效能量降序、矿工证 ID 升序展示活跃 Standard

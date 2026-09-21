@@ -13,6 +13,8 @@ import time
 import urllib.error
 import urllib.request
 
+from common.wallet import exercise_wallet, exercise_public_wallet
+
 HASH = "a" * 64
 PASS = HASH + "i0"
 SCHEMA = "usdb-explorer-public:v1"
@@ -72,14 +74,14 @@ def response(resource, mode):
 
 
 @contextmanager
-def frontend(image):
+def frontend(image, *, rpc_url="http://localhost/rpc"):
     # Upstream's Playwright mode lengthens tooltip closeDelay so automated
     # pointer transitions can reach the interactive sidebar submenu.
     env = {"HOSTNAME": "0.0.0.0", "NEXT_PUBLIC_NETWORK_NAME": "USDB Testnet", "NEXT_PUBLIC_NETWORK_SHORT_NAME": "USDB",
            "NEXT_PUBLIC_APP_INSTANCE": "pw",
            "NEXT_PUBLIC_NETWORK_ID": "202608250", "NEXT_PUBLIC_IS_TESTNET": "true", "NEXT_PUBLIC_APP_HOST": "localhost",
            "NEXT_PUBLIC_APP_PROTOCOL": "http", "NEXT_PUBLIC_API_HOST": "localhost", "NEXT_PUBLIC_API_PROTOCOL": "http",
-           "NEXT_PUBLIC_API_BASE_PATH": "/", "NEXT_PUBLIC_API_WEBSOCKET_PROTOCOL": "ws", "NEXT_PUBLIC_NETWORK_RPC_URL": "http://localhost/rpc",
+           "NEXT_PUBLIC_API_BASE_PATH": "/", "NEXT_PUBLIC_API_WEBSOCKET_PROTOCOL": "ws", "NEXT_PUBLIC_NETWORK_RPC_URL": rpc_url,
            "NEXT_PUBLIC_NETWORK_CURRENCY_NAME": "USDB", "NEXT_PUBLIC_NETWORK_CURRENCY_SYMBOL": "USDB",
            "NEXT_PUBLIC_NETWORK_CURRENCY_DECIMALS": "18", "NEXT_PUBLIC_HOMEPAGE_CHARTS": "[]",
            "NEXT_PUBLIC_HOMEPAGE_STATS": "[]", "NEXT_PUBLIC_AD_BANNER_PROVIDER": "none", "NEXT_PUBLIC_AD_TEXT_PROVIDER": "none",
@@ -108,6 +110,7 @@ def frontend(image):
 def exercise(url, output):
     from playwright.sync_api import sync_playwright, expect
     mode = {"value": "ready"}
+    network = {}
     requests = []
     faucet = {"status": "ready", "claim_status": "queued", "applications": []}
     with sync_playwright() as playwright:
@@ -149,6 +152,8 @@ def exercise(url, output):
                 resource = target.split("/api/usdb/v1/", 1)[1]
                 requests.append(resource)
                 status, body = response(resource, mode["value"])
+                if "network" in body:
+                    body["network"].update(network)
                 route.fulfill(status=status, json=body)
             elif target.startswith(url):
                 route.continue_()
@@ -166,8 +171,9 @@ def exercise(url, output):
         assert not page.evaluate("window.__socketAttempts"), "Realtime is unavailable; WebSocket constructed"
         assert not sockets, f"Realtime is unavailable; unexpected WebSocket attempts: {sockets}"
         page.get_by_role("button", name="Add network to wallet").click()
-        expect(page.get_by_text("Open this page in a compatible wallet", exact=False)).to_be_visible()
+        expect(page.get_by_text("No compatible wallet was detected", exact=False)).to_be_visible()
         page.screenshot(path=str(output / "network-overview.png"), full_page=True)
+        exercise_wallet(page, context, expect, network, output)
         page.locator('[aria-label="USDB link group"]:visible').hover()
         expect(page.get_by_role("link", name="Miner Passes link", exact=True).first).to_be_visible()
         page.get_by_role("link", name="Miner Passes link", exact=True).first.click()
@@ -259,7 +265,7 @@ def exercise(url, output):
         assert not errors, errors
         assert not sockets, f"Page navigation attempted unavailable WebSockets: {sockets}"
         browser.close()
-    print("Frontend browser checks passed: overview, passes, economics, faucet, idempotent retry, recovery, mobile, unavailable, reorg.")
+    print("Frontend browser checks passed: wallet URL checks, wallet errors, pending requests, overview, passes, economics, faucet, idempotent retry, recovery, mobile, unavailable, reorg.")
 
 
 def main():
@@ -270,6 +276,9 @@ def main():
     args.screenshots.mkdir(parents=True, exist_ok=True)
     with frontend(args.image) as url:
         exercise(url, args.screenshots)
+    with frontend(args.image, rpc_url="http://usdb-testnet.example:28080/rpc") as url:
+        exercise_public_wallet(url, args.screenshots, response("overview", "ready")[1])
+    print("Upstream add-network button HTTPS diagnostics passed.")
 
 
 if __name__ == "__main__":

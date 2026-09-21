@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { networkRequestError, networkSetupIssue, requestNetworkSetup, WALLET_NOT_FOUND } from 'lib/web3/networkAddFeedback';
+
 import type { OverviewData } from './api';
 import { amount, errorMessage, readPublic } from './api';
 import { ErrorNotice, PageHeader } from './shared';
@@ -14,6 +16,14 @@ export default function Overview() {
   const [ busy, setBusy ] = React.useState(true);
   const [ tick, setTick ] = React.useState(0);
   const [ walletMessage, setWalletMessage ] = React.useState('');
+  const [ walletPending, setWalletPending ] = React.useState(false);
+  const walletBusy = React.useRef(false);
+  const network = data && {
+    chainId: data.network.chain_id_hex, chainName: data.network.name,
+    nativeCurrency: data.network.native_currency, rpcUrls: data.network.rpc_urls,
+    blockExplorerUrls: data.network.explorer_urls,
+  };
+  const setupIssue = network && networkSetupIssue(network);
 
   React.useEffect(() => {
     let active = true;
@@ -40,15 +50,20 @@ export default function Overview() {
 
   const addNetwork = async() => {
     const wallet = (window as unknown as { ethereum?: Wallet }).ethereum;
-    if (!wallet || !data) { setWalletMessage('Open this page in a compatible wallet, or use the network details below.'); return; }
+    if (!network || walletBusy.current) { return; }
+    if (!wallet || typeof wallet.request !== 'function') { setWalletMessage(WALLET_NOT_FOUND); return; }
+    walletBusy.current = true;
+    setWalletPending(true);
+    setWalletMessage('Open your wallet to review the network request.');
     try {
-      await wallet.request({ method: 'wallet_addEthereumChain', params: [ {
-        chainId: data.network.chain_id_hex, chainName: data.network.name,
-        nativeCurrency: data.network.native_currency, rpcUrls: data.network.rpc_urls,
-        blockExplorerUrls: data.network.explorer_urls,
-      } ] });
-      setWalletMessage('Network details sent to your wallet.');
-    } catch { setWalletMessage('Your wallet did not add this network. You can enter the details below manually.'); }
+      await requestNetworkSetup(wallet, network, () => wallet.request({ method: 'wallet_addEthereumChain', params: [ network ] }));
+      setWalletMessage('Network is available in your wallet. Select it there to use it.');
+    } catch (error) {
+      setWalletMessage(networkRequestError(error));
+    } finally {
+      walletBusy.current = false;
+      setWalletPending(false);
+    }
   };
 
   const lag = data?.explorer.height !== undefined && BigInt(data.chain.height) >= BigInt(data.explorer.height)
@@ -57,9 +72,12 @@ export default function Overview() {
   return <section className={ styles.root }>
     <PageHeader title="Network overview" description="USDB chain and Bitcoin-side indexing, shown separately.">
       <button onClick={ () => setTick(tick + 1) } disabled={ busy }>Refresh</button>
-      <button className={ styles.primary } onClick={ () => void addNetwork() } disabled={ !data }>Add network to wallet</button>
+      <button className={ styles.primary } onClick={ () => void addNetwork() } disabled={ !data || Boolean(setupIssue) || walletPending }
+        aria-describedby={ setupIssue || walletMessage ? 'wallet-network-feedback' : undefined }>
+        { walletPending ? 'Waiting for wallet…' : 'Add network to wallet' }
+      </button>
     </PageHeader>
-    { walletMessage && <p role="status" className={ styles.notice }>{ walletMessage }</p> }
+    { (setupIssue || walletMessage) && <p id="wallet-network-feedback" role="status" className={ styles.notice }>{ setupIssue || walletMessage }</p> }
     { error && <ErrorNotice message={ data ? error + ' Previously loaded values are shown below.' : error }/> }
     { !data && busy && <p role="status">Loading network data…</p> }
     { data && <>

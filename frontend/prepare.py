@@ -74,6 +74,23 @@ def prepare(archive, destination):
     replace_once(destination, "pages/_app.tsx",
                  "  const socketUrl = !config.features.opSuperchain.isEnabled ? getSocketUrl() : undefined;\n\n", "")
     replace_once(destination, "pages/_app.tsx", "<SocketProvider url={ socketUrl }>", "<SocketProvider>")
+    # Both the upstream wallet button and the USDB overview use the same URL
+    # checks and safe error categories; the wallet provider flow stays upstream.
+    replace_once(destination, "lib/web3/useAddChain.tsx", "import useProvider from './useProvider';",
+                 "import { requestNetworkSetup } from './networkAddFeedback';\nimport useProvider from './useProvider';")
+    replace_once(destination, "lib/web3/useAddChain.tsx", """    await provider.request({
+      method: 'wallet_addEthereumChain',
+      params: [ getParams(chainConfig) ],
+    });""", """    const params = getParams(chainConfig);
+    await requestNetworkSetup(provider, params, () => provider.request({
+      method: 'wallet_addEthereumChain',
+      params: [ params ],
+    }));""")
+    replace_once(destination, "lib/web3/useAddChainClick.ts", "import useAddChain from './useAddChain';",
+                 "import { networkRequestError } from './networkAddFeedback';\nimport useAddChain from './useAddChain';")
+    replace_once(destination, "lib/web3/useAddChainClick.ts", """        title: 'Error',
+        description: (error as Error)?.message || 'Something went wrong',""", """        title: 'Network request not completed',
+        description: networkRequestError(error),""")
     replace_once(destination, "ui/pages/Block.tsx", "          <BlockDetails query={ blockQuery }/>",
                  """          <BlockDetails query={ blockQuery }/>
           { blockQuery.data?.hash && !blockQuery.isPlaceholderData && <p style={{ marginTop: 20 }}>
