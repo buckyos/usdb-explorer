@@ -123,6 +123,8 @@ def configure(args, *, kit=KIT):
     path = safe_directory(args.config)
     previous = path.read_bytes() if path.exists() else None
     config = read_json(path if previous is not None else kit / "config.example.json")
+    if getattr(args, "sourcedao_url", None) is not None:
+        config["sourcedao_url"] = args.sourcedao_url
     rpc = config["rpc"]
     if args.rpc_url or rpc.get("mode") != "local-node":
         for key in ("read_url", "trace_url", "broadcast_url"):
@@ -430,6 +432,7 @@ def parser():
             action.add_argument("--indexer-url", help="Private local indexer HTTP RPC for Miner Pass views (default http://127.0.0.1:28020)")
             action.add_argument("--auto-samples", action="store_true", help="Remove pinned history/transaction samples; back up the source config before applying")
             action.add_argument("--explorer-url", help="Advertised origin; select bundled ingress and public binding for a non-loopback host")
+            action.add_argument("--sourcedao-url", help="Shared public DAO site for this network; empty string removes the link")
             action.add_argument("--http-port", type=int, help="Local bundled HTTP port, independent of the advertised port (default 28080)")
             action.add_argument("--bind-address", help="Override the ingress IPv4 bind address")
             ipv6 = action.add_mutually_exclusive_group()

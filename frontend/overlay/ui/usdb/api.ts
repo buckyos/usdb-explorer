@@ -53,6 +53,7 @@ export type OverviewData = {
     btc_index_origin_height: number;
     rpc_urls: Array<string>;
     explorer_urls: Array<string>;
+    sourcedao_url?: string;
     native_currency: { name: string; symbol: string; decimals: number };
   };
   chain: { height: string; hash: string; timestamp: string };

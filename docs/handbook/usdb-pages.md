@@ -108,3 +108,15 @@ usdb-explorer up
 公开健康观察可用 `curl -fsS "$explorer_url/api/usdb/v1/overview"` 和
 `curl -fsS "$explorer_url/api/usdb/v1/passes"`。不要将带凭据的私网配置贴到公开问题中。
 `preflight`/`check` 继续检查完整 EVM 浏览器能力；矿工证页的就绪状态通过上述专用接口确认。
+
+## SourceDAO 公开入口
+
+每个网络共享一套公开 SourceDAO 网站和后台，独立部署与升级。Explorer 的网络概览提供入口，
+不会在本机自动安装 DAO 服务，也不依赖矿工 control-plane 的初始化标记。
+
+执行 `usdb-explorer setup`，填写 `Public SourceDAO site URL`；留空表示不展示，输入 `-` 移除已有入口。
+也可在配置 JSON 顶层设置 `"sourcedao_url": "https://实际DAO域名"`。
+编辑后按 setup 提示执行 down、prepare --replace、up，保留原有数据库和凭据。
+网站登录和钱包交易在独立 DAO 网站进行；此链接不表示 Explorer 已验证网站健康状态。
+
+DAO 运维步骤见 [SourceDAO 网站手册](https://github.com/buckyos/SourceDAOBackend/blob/main/doc/SiteHandbook.md)。

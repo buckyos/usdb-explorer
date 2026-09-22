@@ -193,6 +193,7 @@ type gateway struct {
 	catalog                    networkCatalog
 	network                    []byte
 	explorerURL                string
+	sourcedaoURL               string
 	upstream, chainID, genesis string
 	client                     *http.Client
 	active                     chan struct{}
@@ -435,6 +436,7 @@ func main() {
 		log.Fatal("Invalid public RPC upstream or network identity configuration")
 	}
 	g.explorerURL = "http://backend:4000"
+	g.sourcedaoURL = os.Getenv("SOURCEDAO_URL")
 	if identity := os.Getenv("NETWORK_IDENTITY_JSON"); identity != "" {
 		if json.Unmarshal([]byte(identity), &g.catalog) != nil || !g.catalog.valid(g) {
 			log.Fatal("Invalid USDB public network catalog")

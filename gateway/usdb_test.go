@@ -105,6 +105,19 @@ func TestUSDBOverviewSeparatesHeightsAndSanitizesReadiness(t *testing.T) {
 	}
 }
 
+func TestUSDBOverviewSharedDAOEntry(t *testing.T) {
+	g := publicFixture(t, nil)
+	g.sourcedaoURL = "https://dao.example.test"
+	w := getPublic(g, "overview")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"sourcedao_url":"https://dao.example.test"`) {
+		t.Fatal(w.Code, w.Body)
+	}
+	g.sourcedaoURL = "javascript:alert(1)"
+	if getPublic(g, "overview").Code == 200 {
+		t.Fatal("unsafe DAO URL accepted")
+	}
+}
+
 func TestUSDBDetailPinsAllRelatedReadsAndPreservesLargeIntegers(t *testing.T) {
 	pinned := false
 	g := publicFixture(t, func(method string, params []json.RawMessage, _ map[string]any) {

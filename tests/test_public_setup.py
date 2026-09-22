@@ -32,6 +32,13 @@ class Answers:
 
 
 class PublicSetupTests(unittest.TestCase):
+    def test_shared_sourcedao_site_is_optional_and_can_be_removed(self):
+        self.run_setup(Answers(**{"Public SourceDAO site URL": ["javascript:alert(1)", "https://dao.example.test/"]}))
+        self.assertEqual(self.config()["sourcedao_url"], "https://dao.example.test")
+        self.assertIn("HTTP(S)", self.output.getvalue())
+        self.run_setup(Answers(**{"Public SourceDAO site URL": ["-"]}))
+        self.assertEqual(self.config()["sourcedao_url"], "")
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

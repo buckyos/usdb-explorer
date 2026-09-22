@@ -104,6 +104,11 @@ export default function Overview() {
         Miner Passes use Bitcoin { data.network.btc_network === 'btc-mainnet' ? 'mainnet' : 'testnet' }; USDB test coins cannot pay Bitcoin inscription fees.</p>
       <a className={ styles.cta } href="/usdb/passes">Explore Miner Passes →</a>
       <p><a className={ styles.cta } href={ '/usdb/economics?block=' + data.chain.hash }>Verify latest block economics →</a></p>
+      { data.network.sourcedao_url && <div className={ styles.panel }>
+        <h2>SourceDAO governance</h2>
+        <p>The public DAO website is shared by this network. Account login and wallet transactions take place on that site.</p>
+        <a className={ styles.cta } href={ data.network.sourcedao_url } target="_blank" rel="noopener noreferrer">Open SourceDAO ↗</a>
+      </div> }
     </> }
   </section>;
 }

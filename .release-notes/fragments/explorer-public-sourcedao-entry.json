@@ -1,0 +1,11 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-public-sourcedao-entry",
+  "type": "added",
+  "scopes": ["explorer", "deployment", "documentation"],
+  "summary": "Link the network's shared public SourceDAO website from the USDB overview.",
+  "details": ["Setup accepts an optional SourceDAO origin. Network overview exposes the configured public link without deploying DAO services on Explorer or miner nodes. An unset address keeps the entry hidden."],
+  "operator_actions": ["Optionally set the public SourceDAO URL in setup, then apply the configuration using the usual down, prepare --replace and up workflow."],
+  "compatibility": {"network_reset": false, "data_rebuild": false, "config_change": false, "restart_required": true},
+  "references": []
+}

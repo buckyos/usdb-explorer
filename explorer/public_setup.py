@@ -12,6 +12,13 @@ from faucet_config import DEFAULTS, amount
 from public_config import endpoint, ipv6_binding, load_config, read_json
 
 
+def sourcedao_origin(value):
+    if value in {"", "-"}:
+        return value
+    endpoint(value, origin=True)
+    return value.rstrip("/")
+
+
 class Prompts:
     """Retry invalid answers without discarding earlier choices or echoing private URLs."""
 
@@ -238,6 +245,10 @@ def setup(args, root, *, kit, input_fn=None, output=None):
             configure_rpc(config, prompts)
             configure_ingress(config, prompts)
             configure_faucet(config, prompts)
+            config["sourcedao_url"] = prompts.ask("Public SourceDAO site URL (optional; '-' removes it)", config.get("sourcedao_url", ""),
+                                                  sourcedao_origin)
+            if config["sourcedao_url"] == "-":
+                config["sourcedao_url"] = ""
             # Run the same full validation as prepare before review, without writing operator files.
             with tempfile.TemporaryDirectory(prefix="explorer-setup-") as temporary:
                 candidate = Path(temporary) / "config.json"

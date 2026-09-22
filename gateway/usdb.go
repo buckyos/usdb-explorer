@@ -489,6 +489,12 @@ func (g *gateway) overview(ctx context.Context) (any, error) {
 	if json.Unmarshal(g.network, &wallet) != nil {
 		return nil, invalidResponse()
 	}
+	if g.sourcedaoURL != "" {
+		u, err := url.Parse(g.sourcedaoURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+			return nil, invalidResponse()
+		}
+	}
 	indexer := map[string]any{"status": "unavailable"}
 	indexerContext, cancelIndexer := context.WithTimeout(ctx, 4*time.Second)
 	ready, err := g.indexerReady(indexerContext)
@@ -528,7 +534,7 @@ func (g *gateway) overview(ctx context.Context) (any, error) {
 	return map[string]any{"schema_version": publicSchema, "updated_at": time.Now().UTC().Format(time.RFC3339),
 		"network": map[string]any{"name": wallet.ChainName, "chain_id": strconv.FormatUint(g.catalog.ChainID, 10), "chain_id_hex": g.chainID,
 			"genesis_hash": g.genesis, "bundle_id": g.catalog.Bundle, "btc_network": g.catalog.BTCNetwork, "btc_index_origin_height": g.catalog.BTCOrigin,
-			"rpc_urls": wallet.RPC, "explorer_urls": wallet.Explorer, "native_currency": wallet.Currency},
+			"rpc_urls": wallet.RPC, "explorer_urls": wallet.Explorer, "native_currency": wallet.Currency, "sourcedao_url": g.sourcedaoURL},
 		"chain":    map[string]any{"height": strconv.FormatUint(height, 10), "hash": head.Hash, "timestamp": strconv.FormatUint(timestamp, 10)},
 		"explorer": indexed, "indexer": indexer}, nil
 }

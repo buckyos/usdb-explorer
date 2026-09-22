@@ -95,7 +95,12 @@ def ipv6_binding(value, exposure):
 def load_config(path, kit):
     """Normalize one private configuration without reading a node installation."""
     value = read_json(path)
-    fields(value, {"schema_version", "deployment_id", "network", "rpc", "ingress"}, {"resources", "faucet"})
+    fields(value, {"schema_version", "deployment_id", "network", "rpc", "ingress"}, {"resources", "faucet", "sourcedao_url"})
+    if value.get("sourcedao_url"):
+        endpoint(value["sourcedao_url"], origin=True)
+        value["sourcedao_url"] = value["sourcedao_url"].rstrip("/")
+    elif "sourcedao_url" in value and value["sourcedao_url"] != "":
+        raise ValueError("sourcedao_url must be an HTTP(S) origin or an empty string")
     from faucet_config import validate_faucet
     validate_faucet(value)
     if value["schema_version"] != CONFIG_SCHEMA or not re.fullmatch(r"[a-z][a-z0-9-]{1,47}", str(value["deployment_id"])):
@@ -367,6 +372,7 @@ def compose_document(config, identity, lock, root):
             environment={"RPC_UPSTREAM": rpc["read_url"], "BROADCAST_UPSTREAM": rpc["broadcast_url"],
                          "CHAIN_ID_HEX": hex(identity["chain_id"]), "GENESIS_HASH": identity["genesis_block_hash"],
                          "INDEXER_UPSTREAM": rpc.get("indexer_url") or "",
+                         "SOURCEDAO_URL": config.get("sourcedao_url", ""),
                          "NETWORK_IDENTITY_JSON": json.dumps({key: identity[key] for key in (
                              "bundle_id", "chain_id", "genesis_block_hash", "btc_network_id", "btc_index_origin_height", "btc_activation_registry_id")}),
                          "NETWORK_FILE": "/config/network.json"},
