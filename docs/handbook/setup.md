@@ -40,7 +40,8 @@ usdb-explorer setup
 例如公网 `38080` 映射到主机 `28080`，Visitor URL 填实际公网地址的 `:38080`，
 Nginx local HTTP port 填 `28080`。域名使用 HTTPS 时，bundled 模式继续询问 HTTPS 端口和
 证书目录；external 模式由外部代理管理证书。DNS、端口映射、证书签发/续期和防火墙由管理员管理，
-详细步骤见[部署模式与访问地址](networking.md)。
+模式说明见[部署模式与访问地址](networking.md)，使用已有证书从 HTTP 迁移的完整流程见
+[内置 Nginx HTTPS 操作指南](https.md)。
 
 启用水龙头时，向导首次提供 `1 USDB/次`、`100 USDB/日` 作为可修改建议值，保存前完整展示
 限额。全局每日预算按本实例 UTC 日期计，包含最大手续费预留；IP 领取限制按滚动 24 小时计。

@@ -63,6 +63,9 @@ usdb-explorer configure --local-node --explorer-url "$explorer_url" --http-port 
 
 ## 内置 Nginx 提供 HTTPS
 
+已有 HTTP 部署需要迁移时，按[已有证书 HTTPS 操作指南](https.md)完成证书安装、setup、
+端口映射、配置生效和验证。该指南包含通配符证书示例、IPv6 端口选择及证书续期流程。
+
 首次开启 bundled HTTPS 时，运行 `usdb-explorer setup`，选择 bundled 并填写 HTTPS URL，
 向导会继续询问本机 HTTP/HTTPS 端口与已有证书目录。不能只执行 `configure --explorer-url https://...`，
 因为该快捷命令没有证书选项。也可以备份 `~/.config/usdb-public/config.json` 后，
