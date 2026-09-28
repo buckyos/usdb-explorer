@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Accept standalone lifecycle, optional ingress, upstream gates and independent releases."""
 from copy import deepcopy
+import io
 import json
 import os
 from pathlib import Path
@@ -258,6 +259,117 @@ class PublicServicesTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "server administrator"):
                 PUBLIC.execute(PUBLIC.parser().parse_args(["reload-proxy"]), self.state)
             docker.assert_not_called()
+
+    def test_version_commands_work_without_deployment_or_docker(self):
+        for arguments in (["version"], ["--version"], ["version", "--json"]):
+            with self.subTest(arguments=arguments), mock.patch.object(PUBLIC, "docker") as docker, \
+                    mock.patch.object(PUBLIC, "safe_directory", side_effect=AssertionError("version must not access deployment")), \
+                    mock.patch("sys.stdout", new_callable=io.StringIO) as output:
+                self.assertEqual(PUBLIC.main(arguments), 0)
+                docker.assert_not_called()
+                if "--json" in arguments:
+                    self.assertEqual(json.loads(output.getvalue())["tool"]["version"], "development")
+                else:
+                    self.assertIn("USDB Explorer tool: development", output.getvalue())
+
+    def status(self, *, json_output=True, docker_output="[]", docker_error=None):
+        arguments = ["status", "--state-dir", str(self.state), *(["--json"] if json_output else [])]
+        with mock.patch.object(PUBLIC, "docker", return_value=SimpleNamespace(stdout=docker_output), side_effect=docker_error) as docker, \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as output:
+            code = PUBLIC.main(arguments)
+        return code, json.loads(output.getvalue()) if json_output else output.getvalue(), docker
+
+    def test_status_distinguishes_unprepared_and_stopped_deployments(self):
+        code, report, docker = self.status()
+        self.assertEqual(code, 0)
+        self.assertEqual(report["status"], "NOT_PREPARED")
+        self.assertIsNone(report["deployment"])
+        docker.assert_not_called()
+        self.assertFalse(self.state.parent.joinpath(".state.operation.lock").exists())
+        self.prepare()
+        before = PUBLIC.file_hashes(self.state)
+        code, report, docker = self.status()
+        self.assertEqual(code, 0)
+        self.assertEqual(report["status"], "NO_CONTAINERS")
+        self.assertEqual(report["deployment"]["chain_id"], self.identity["chain_id"])
+        self.assertEqual(PUBLIC.file_hashes(self.state), before)
+        self.assertEqual(docker.call_args.args[0][-4:], ["ps", "--all", "--format", "json"])
+
+    def test_status_reports_versions_and_legacy_metadata_without_exposing_secrets(self):
+        self.prepare()
+        deployment = CONFIG.read_json(self.state / "deployment.json")
+        deployment["release_version"] = "0.2.9"
+        PUBLIC.write_json(self.state / "deployment.json", deployment)
+        kit = self.root / "kit"
+        kit.mkdir()
+        (kit / "marker").write_text("release fixture")
+        PUBLIC.write_json(kit / "release.json", {"schema_version": "usdb-public-release:v1", "version": "0.2.10",
+            "source_revision": "ab" * 20, "source_dirty": False, "files": {"marker": PUBLIC.digest(kit / "marker")}})
+        with mock.patch.object(PUBLIC, "KIT", kit):
+            code, report, _ = self.status()
+            self.assertEqual(code, 0)
+            self.assertEqual(report["tool"]["version"], "0.2.10")
+            self.assertEqual(report["tool"]["source_revision"], "ab" * 20)
+            self.assertEqual(report["deployment"]["release_version"], "0.2.9")
+            self.assertEqual(report["version_relation"], "different")
+            for secret in CONFIG.read_json(self.state / "credentials.json").values():
+                self.assertNotIn(secret, json.dumps(report))
+            self.assertNotIn("read_url", json.dumps(report))
+            _, text, _ = self.status(json_output=False)
+            self.assertIn("Prepared release: v0.2.9", text)
+            self.assertIn("versions differ", text)
+            self.assertIn("prepare --replace", text)
+            # Old deployments remain readable without newly introduced metadata fields.
+            deployment["release_version"] = "0.2.10"
+            PUBLIC.write_json(self.state / "deployment.json", deployment)
+            self.assertEqual(self.status()[1]["version_relation"], "same")
+            del deployment["release_version"]
+            PUBLIC.write_json(self.state / "deployment.json", deployment)
+            self.assertEqual(self.status()[1]["version_relation"], "unknown")
+
+    def test_status_accepts_compose_json_formats_and_keeps_output_compact(self):
+        self.prepare()
+        rows = [{"Service": "proxy", "Name": "example-proxy-1", "State": "running", "Health": "",
+                 "Status": "Up 8 days", "Image": "nginx@sha256:" + "ab" * 32, "Command": "hidden-secret",
+                 "Publishers": [{"URL": "::", "PublishedPort": 28443, "TargetPort": 8443, "Protocol": "tcp"}]},
+                {"Service": "backend", "Name": "example-backend-1", "State": "exited", "Status": "Exited (1)",
+                 "Health": "unhealthy", "Publishers": None}]
+        for output in (json.dumps(rows), "\n".join(json.dumps(row) for row in rows)):
+            with self.subTest(output=output):
+                code, report, _ = self.status(docker_output=output)
+                self.assertEqual(code, 0)
+                self.assertEqual(report["status"], "OBSERVED")
+                self.assertEqual(report["containers"][0]["state"], "exited")
+                self.assertEqual(report["containers"][1]["image"], rows[0]["Image"])
+                self.assertNotIn("hidden-secret", json.dumps(report))
+        _, text, _ = self.status(json_output=False, docker_output=json.dumps(rows))
+        self.assertLess(text.index("Prepared release:"), text.index("Containers:"))
+        self.assertIn("[::]:28443->8443/tcp", text)
+        self.assertIn("unhealthy", text)
+        self.assertNotIn("sha256", text)
+
+    def test_status_docker_failure_retains_metadata_and_a_nonzero_exit_code(self):
+        self.prepare()
+        for error in (FileNotFoundError("docker"), subprocess.TimeoutExpired("docker", 30),
+                      subprocess.CalledProcessError(1, "docker", stderr="hidden-secret")):
+            with self.subTest(error=error):
+                code, report, _ = self.status(docker_error=error)
+                self.assertEqual(code, 1)
+                self.assertEqual(report["status"], "CONTAINERS_UNAVAILABLE")
+                self.assertEqual(report["deployment"]["chain_id"], self.identity["chain_id"])
+                self.assertNotIn("hidden-secret", json.dumps(report))
+        code, report, _ = self.status(docker_output="not JSON")
+        self.assertEqual(code, 1)
+        self.assertEqual(report["status"], "CONTAINERS_UNAVAILABLE")
+
+    def test_status_rejects_modified_prepared_files_before_accessing_docker(self):
+        self.prepare()
+        (self.state / "config.json").write_text("{}")
+        code, report, docker = self.status()
+        self.assertEqual(code, 1)
+        self.assertEqual(report["status"], "FAILED")
+        self.assertIn("changed or missing", report["error"]["message"])
+        docker.assert_not_called()
 
     def test_failed_upstream_preflight_cannot_start_or_build_services(self):
         self.prepare()

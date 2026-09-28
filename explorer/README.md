@@ -310,7 +310,8 @@ Certbot 的 `live/` 文件通常链接到其他目录，应在续期 deploy hook
 
 - `preflight`：只访问配置中的上游 RPC，核对所有端点的 chain ID、network ID、genesis、同步状态、
   固定高度及哈希，执行历史 balance/code/call、交易和整块 callTracer 样本。不需要浏览器已启动。
-- `status`：显示自身容器状态和入口地址。容器 running 不能证明已经索引完成。
+- `version` / `--version`：不依赖 Docker 或部署，显示当前工具版本、源码 revision 和安装目录；支持 `version --json`。
+- `status`：先显示工具与已准备部署的版本、网络身份、入口及水龙头开关，再显示简洁的容器状态、健康检查和端口表格。版本不一致时提示重新应用部署；`status --json` 保留完整镜像引用。容器 running 不能证明已经索引完成，已准备版本也不代表运行镜像已核验一致。
 - `check`：重复上游采样，并通过 `explorer_url` 查询实际网关和浏览器 API，核对固定区块、交易、
   receipt 状态、gasUsed、实际 fee、canonical membership，结束前再次核对哈希。外部 Nginx 尚未接入会失败。
 

@@ -64,6 +64,23 @@ class PublicInstallerTests(unittest.TestCase):
         self.assertIn("~/.config/usdb-public/config.json", "".join(command.stdout.split()))
         self.assertFalse((self.root / "node.env").exists())
 
+    def test_installed_version_commands_use_the_selected_release_after_upgrade(self):
+        self.assertEqual(self.run_installer().returncode, 0)
+        self.make_release("0.2.0")
+        self.assertEqual(self.run_installer("0.2.0").returncode, 0)
+        for name in ("usdb-explorer", "usdb-public"):
+            command = subprocess.run([str(self.commands / name), "version", "--json"], env=self.env,
+                                     text=True, capture_output=True, timeout=10)
+            self.assertEqual(command.returncode, 0, command.stderr)
+            tool = json.loads(command.stdout)["tool"]
+            self.assertEqual(tool["version"], "0.2.0")
+            self.assertEqual(Path(tool["release_dir"]), self.storage / "releases/usdb-explorer-v0.2.0")
+            self.assertRegex(tool["source_revision"], r"^[0-9a-f]{40}$")
+            short = subprocess.run([str(self.commands / name), "--version"], env=self.env,
+                                   text=True, capture_output=True, timeout=10)
+            self.assertEqual(short.returncode, 0, short.stderr)
+            self.assertIn("USDB Explorer tool: v0.2.0", short.stdout)
+
     def test_installed_command_can_configure_and_prepare_same_host_http_ingress(self):
         result = self.run_installer()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -95,7 +112,8 @@ class PublicInstallerTests(unittest.TestCase):
                                    "--state-dir", str(state)], env=self.env, stdin=slave, stdout=slave, stderr=slave) as command:
                 os.close(slave)
                 slave = None
-                os.write(master, b"\n" * 9)
+                # Include the optional SourceDAO URL before the final save confirmation.
+                os.write(master, b"\n" * 10)
                 try:
                     command.wait(timeout=10)
                 except subprocess.TimeoutExpired:

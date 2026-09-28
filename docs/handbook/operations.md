@@ -10,7 +10,8 @@
 | 命令 | 检查对象 | 不能据此得出的结论 |
 | --- | --- | --- |
 | `preflight` | 配置中的上游 RPC、网络身份、状态和 tracing | 不访问公布的浏览器 URL，不保证前端或端口转发正常 |
-| `status` | 本部署的容器状态和配置入口 | running 不代表完成索引或能够对外访问 |
+| `version` / `--version` | 当前命令所使用的工具版本、源码 revision 和安装目录 | 工具升级不代表部署已更新 |
+| `status` | 工具与已准备部署的版本、网络、入口和容器状态 | 已准备版本不等于容器运行版本；running 不代表完成索引或能够对外访问 |
 | `check` | 先做 preflight，再对比本机、主机/LAN、公布 URL 的 `/rpc` 和浏览器 API | 从服务器发起的探测不等于外网访问验收，也不等于全历史、重组或钱包广播验收 |
 
 新版默认先打印明确结论，例如首节点没有交易时：
@@ -108,10 +109,49 @@ v0.2.4 不支持 `--url`，可使用[本机 curl 检查](troubleshooting.md#pref
 ## 日常观察
 
 ```bash
+usdb-explorer version
 usdb-explorer status
 usdb-explorer check
 usdb-explorer logs --follow
 ```
+
+安装包含版本诊断功能的 release 后，`version`（或 `--version`）无需 Docker 或已准备的部署，
+显示当前工具版本、源码 revision 和实际安装目录。开发源码目录明确显示 `development`，
+旧包缺少源码 revision 时显示不可用，不根据目录名或镜像标签猜测版本。兼容命令 `usdb-public`
+也支持相同用法。
+
+`status` 先显示工具身份和已准备部署的信息：版本、部署目录、deployment ID、网络、Chain ID、
+genesis、RPC/入口模式、访问 URL 和水龙头开关；随后用简洁表格显示每个容器的状态、健康检查、
+运行时长及已发布端口。完整容器名与镜像引用保留在 JSON 中，不把长镜像摘要放入默认表格。
+
+**工具版本来自安装包的 `release.json`，已准备版本来自部署的 `deployment.json`。**
+两者不同时会明确提示，并给出 down → prepare --replace → preflight → up → check 的应用流程。
+应先核对目标 release 的升级说明，继续使用原 `--config` / `--state-dir`；status 本身不会更新配置
+或重启服务。`Prepared release` 仅说明部署文件由哪个工具版本生成，容器是否存在、是否运行要看
+后面的观察结果，不能将该版本号当作运行容器镜像已经核验一致的证明。
+
+脚本可读取以下 JSON 输出，其中不包含数据库凭据、私有 RPC URL 或容器启动命令：
+
+```bash
+usdb-explorer version --json
+usdb-explorer status --json
+usdb-explorer status --state-dir /path/to/deployment --json
+```
+
+`version --json` 使用 `usdb-explorer-version:v1`，`status --json` 使用 `usdb-explorer-status:v1`。
+status 的 `tool` 与 `deployment` 分别描述工具和已准备配置，`version_relation` 为 `same`、
+`different` 或 `unknown`，`containers` 为本次 Docker 观察。主要状态如下：
+
+| status 状态 | 含义 | 退出码 |
+| --- | --- | --- |
+| `OBSERVED` | 已取得容器观察；即使包含 stopped/unhealthy，也需逐项查看 | 0 |
+| `NOT_PREPARED` | 指定部署目录不存在，仍可看到工具版本；核对路径或执行 setup/prepare | 0 |
+| `NO_CONTAINERS` | 已准备部署，但 Docker 未返回该部署的容器 | 0 |
+| `CONTAINERS_UNAVAILABLE` | Docker 不可用、权限不足、超时或返回格式无效；保留版本和配置摘要 | 1 |
+| `FAILED` | 工具或部署校验失败等错误；按 `error` 排查 | 1 |
+
+这些退出码表示能否完成状态查询，不能代替 `check` 的就绪判断。Docker 不可用时不会自动启动
+Docker；未准备部署时不会创建配置或目录。已有部署文件校验失败时会报错，不降级为“未准备”。
 
 跟随日志用 Ctrl+C 退出，不会停止服务。记录首次失败的服务、错误分类、时间和版本；观察磁盘、
 内存余量、容器重启和索引高度。节点长期不出块时先判断其是否本来就在等待首次 mining；

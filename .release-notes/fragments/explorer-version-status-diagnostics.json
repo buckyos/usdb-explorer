@@ -1,0 +1,24 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-version-status-diagnostics",
+  "type": "added",
+  "scopes": ["deployment", "documentation"],
+  "summary": "Show installed Explorer identity and distinguish prepared deployment versions in status",
+  "details": [
+    "Add version, --version and version --json without requiring Docker or a prepared deployment; report the selected release version, source revision and directory, keeping development and missing legacy metadata explicit.",
+    "Show installed and prepared versions, network identity, ingress, faucet state and a compact container table. Explain mismatched versions without treating prepared configuration as proof of the running image version or indexing readiness.",
+    "Add status --json with public metadata, image references and container observations while omitting private RPC URLs, credentials and container commands. Preserve metadata and return a nonzero exit code when Docker status cannot be read.",
+    "Keep existing deployment manifests and the usdb-public alias compatible; status/version do not rewrite configuration, start Docker or change services."
+  ],
+  "operator_actions": [
+    "After installing this release, use usdb-explorer version and status to compare the selected tool with an existing prepared deployment; these diagnostics do not require preparing or restarting that deployment.",
+    "Use status --json for automated inventory instead of parsing the previous raw Compose table. Review the target release notes before applying a version mismatch with the normal deployment replacement workflow."
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": false
+  },
+  "references": []
+}

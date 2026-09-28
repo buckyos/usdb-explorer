@@ -69,6 +69,12 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(self.config.read_bytes(), before_config)
         self.assertEqual((self.state / "credentials.json").read_bytes(), credentials)
         self.run_command(str(self.commands / "usdb-public"), "--help")
+        observed = json.loads(self.run_command(str(self.commands / "usdb-explorer"), "status", "--json",
+                                              "--state-dir", str(self.state)).stdout)
+        self.assertEqual(observed["tool"]["version"], "0.2.0")
+        self.assertEqual(observed["deployment"]["release_version"], "0.1.0")
+        self.assertEqual(observed["deployment"]["rpc_mode"], "external")
+        self.assertEqual(observed["version_relation"], "different")
         self.run_command(str(self.commands / "usdb-explorer"), "prepare", "--replace", "--config", str(self.config), "--state-dir", str(self.state))
         after_compose = json.loads((self.state / "compose.json").read_bytes())
         self.assertEqual(after_compose["name"], before_compose["name"])
@@ -76,7 +82,9 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual((self.state / "credentials.json").read_bytes(), credentials)
         self.assertEqual(marker.read_bytes(), b"existing operator data")
         calls = [json.loads(line) for line in (self.root / "docker.log").read_text().splitlines()]
-        self.assertTrue(all(call[0] in {"ps", "inspect"} for call in calls))
+        self.assertTrue(all(call[0] in {"ps", "inspect"} or
+                            (call[0] == "compose" and call[-4:] == ["ps", "--all", "--format", "json"])
+                            for call in calls))
 
 
 if __name__ == "__main__":

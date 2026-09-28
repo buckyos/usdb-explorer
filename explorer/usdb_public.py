@@ -19,6 +19,7 @@ from public_config import (GIB, compose_document, container_rpc, endpoint, image
                            local_rpc_config, nginx_config, read_json, security_enforcement, wallet_network, faucet_token)
 from public_checks import ReadRpc, check_explorer, identity_check, preflight, same_checkpoint
 from ingress_checks import check_ingresses
+from public_status import container_observations, print_status, print_tool, status_report, tool_identity
 
 KIT = Path(__file__).resolve().parent
 DEPLOYMENT_SCHEMA = "usdb-public-deployment:v1"
@@ -399,7 +400,10 @@ def print_check_report(command, report, *, json_output=False):
 
 def print_failure(args, message, *, category=None):
     """Checks expose a stable exit code and optional machine-readable failure document."""
-    if args.command in {"preflight", "check"}:
+    if args.command in {"version", "status"} and getattr(args, "json_output", False):
+        print(json.dumps({"schema_version": f"usdb-explorer-{args.command}:v1", "status": "FAILED",
+                          "error": {"category": category or "VALIDATION_ERROR", "message": message}}, indent=2))
+    elif args.command in {"preflight", "check"}:
         if args.json_output:
             print(json.dumps({"schema_version": "usdb-public-check:v1", "status": args.command.upper() + "_FAILED",
                               "error": {"category": category or "VALIDATION_ERROR", "message": message}}, indent=2))
@@ -411,7 +415,10 @@ def print_failure(args, message, *, category=None):
 
 def parser():
     result = argparse.ArgumentParser(description="Operate standalone USDB explorer and public RPC services")
-    actions = result.add_subparsers(dest="command", required=True)
+    result.add_argument("--version", action="store_true", dest="show_version", help="Show installed tool identity without accessing Docker or a deployment")
+    actions = result.add_subparsers(dest="command")
+    version = actions.add_parser("version", help="Show installed tool version, source revision and directory")
+    version.add_argument("--json", dest="json_output", action="store_true", help="Print a machine-readable tool identity")
     from faucet_cli import add_parser
     add_parser(actions)
     for name in ("setup", "configure", "prepare", "up", "down", "status", "check", "preflight", "logs", "reload-proxy"):
@@ -420,6 +427,8 @@ def parser():
                             help="Private deployment directory, independent of node.env")
         if name in {"preflight", "check"}:
             action.add_argument("--json", dest="json_output", action="store_true", help="Print only a JSON report; exit 0 for ready/passed, 1 for failure")
+        if name == "status":
+            action.add_argument("--json", dest="json_output", action="store_true", help="Print tool/deployment versions and container observations as JSON; not a readiness check")
         if name == "check":
             action.description = "Compare upstream, bundled loopback, host/LAN and configured visitor paths; an explicit --url checks only that origin."
             action.add_argument("--url", help="Check only this Explorer origin instead of comparing paths; does not change the visitor URL")
@@ -446,7 +455,34 @@ def parser():
     return result
 
 
+def show_status(args, root):
+    """Read the selected kit and verified deployment without modifying or starting services."""
+    tool = tool_identity(KIT, verify_kit(KIT))
+    if not root.exists():
+        report = status_report(tool, root)
+    else:
+        deployment = verify(root)
+        report = status_report(tool, root, deployment, read_json(root / "config.json"), read_json(root / "identity.json"))
+        try:
+            result = compose(root, ["ps", "--all", "--format", "json"], capture=True, timeout=30)
+            report["containers"] = container_observations(result.stdout)
+            if not report["containers"]:
+                report["status"] = "NO_CONTAINERS"
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # Docker errors may contain environment data; retain metadata without echoing stderr.
+            report["status"] = "CONTAINERS_UNAVAILABLE"
+            report["error"] = {"category": "DOCKER_STATUS_UNAVAILABLE",
+                               "message": "Cannot read container status; check Docker availability, permissions and Compose JSON support."}
+    if args.json_output:
+        print(json.dumps(report, indent=2))
+    else:
+        print_status(report)
+    return 1 if "error" in report else 0
+
+
 def execute(args, root):
+    if args.command == "status":
+        return show_status(args, root)
     if args.command == "setup":
         from public_setup import setup
         return setup(args, root, kit=KIT)
@@ -509,16 +545,26 @@ def execute(args, root):
         print("Bundled proxy configuration checked and reloaded.")
     elif args.command == "logs":
         compose(root, ["logs", "--tail", "100", *(["--follow"] if args.follow else [])])
-    else:
-        compose(root, ["ps", "--all"], timeout=30)
-        print(f"Ingress: {config['ingress']['mode']}; explorer: {config['ingress']['explorer_url']}")
-        print("Container state does not prove synchronization; use check for canonical RPC/explorer samples.")
     return 0
 
 
 def main(argv=None):
-    args = parser().parse_args(argv)
+    cli = parser()
+    args = cli.parse_args(argv)
+    if args.show_version:
+        if args.command is not None:
+            cli.error("--version cannot be combined with a subcommand; use version --json for JSON output")
+        args = cli.parse_args(["version"])
+    if args.command is None:
+        cli.error("a command is required")
     try:
+        if args.command == "version":
+            tool = tool_identity(KIT, verify_kit(KIT))
+            if args.json_output:
+                print(json.dumps({"schema_version": "usdb-explorer-version:v1", "tool": tool}, indent=2))
+            else:
+                print_tool(tool)
+            return 0
         root = safe_directory(args.state_dir)
         if args.command == "setup":
             if not sys.stdin.isatty() or not sys.stdout.isatty():

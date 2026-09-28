@@ -14,6 +14,7 @@
 | 理解 local-node/bundled、外部 Nginx、端口映射、域名和 HTTPS | [部署模式与访问地址](networking.md) |
 | 使用已有域名证书将 HTTP 迁移到 HTTPS，验证入口并续期 | [内置 Nginx HTTPS 操作指南](https.md) |
 | 判断预检结果、检查服务、升级和备份 | [日常运维](operations.md) |
+| 查看工具版本、已准备部署版本及容器状态，排查升级未应用 | [版本与状态诊断](operations.md#日常观察) |
 | 预检失败、check 超时、页面空白或数据不更新 | [故障排查](troubleshooting.md) |
 
 ## 版本与验证范围
