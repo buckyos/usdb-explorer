@@ -1,0 +1,35 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-testnet-v1-network-reset",
+  "type": "changed",
+  "scopes": [
+    "network",
+    "deployment",
+    "release",
+    "documentation",
+    "testing",
+    "gateway"
+  ],
+  "summary": "将 Explorer 同步到重置后的 USDB testnet-v1 网络",
+  "details": [
+    "以 USDB r25 源码 8d45b31f1bf43565579787069238d17c51e19aa1 导出的冻结契约替换 v0：chain ID 为 202610030，同时更新 genesis、BTC activation registry 和 rules scope。USDB 配套导出工具同步选择 testnet-v1 bundle。",
+    "默认配置、发布包、镜像扫描证据和钱包网络参数统一使用 v1；不再包含 v0 catalog，旧配置在 prepare 时明确提示重新部署，不增加旧链兼容或数据备份迁移。",
+    "识别 v1 active_version_set 中的结构化 scope，并将 Bitcoin network_id 与 USDB rules_scope 对照冻结契约校验，修复矿工证列表和详情对合法 v1 状态返回 502 的问题；缺失、错误或未知嵌套 scope 仍被拒绝。",
+    "发布兼容性比较从各源码 revision 的默认配置读取网络文件，即使前后 catalog 文件名不同也能正确报告 network_reset。保留运行时网络身份校验，防止连接错误上游或复用另一条链的数据库。",
+    "RPC profile 仍为 usdb-explorer-rpc:v1；额外数据保持原值，尚未验收的全网供应量和 Ethereum 奖励假设继续保持 not_qualified。"
+  ],
+  "operator_actions": [
+    "安装包含此变更的 Explorer release；将已废弃的 v0 Explorer 容器、数据卷、源配置和生成部署清理后重新 setup、prepare、preflight、up、check，从空数据库索引 v1。无需备份或迁移 v0 数据，不清理正在运行的 v1 节点数据。",
+    "配置实际 HTTPS 域名、端口和证书目录，核对 Explorer 的内存和磁盘预算，并从访问者网络验证入口。",
+    "钱包添加 chain ID 202610030；如重新启用水龙头，向新生成的账户补充 v1 测试币。"
+  ],
+  "compatibility": {
+    "network_reset": true,
+    "data_rebuild": false,
+    "config_change": true,
+    "restart_required": true
+  },
+  "references": [
+    "https://github.com/buckyos/usdb/commit/8d45b31f1bf43565579787069238d17c51e19aa1"
+  ]
+}

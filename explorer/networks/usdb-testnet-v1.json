@@ -1,0 +1,14 @@
+{
+  "bundle_id": "usdb-testnet-v1",
+  "bundle_status": "development-resettable",
+  "network_json_sha256": "7080b66dace7fa941aa135aaeae18b726b6ae05a1862de9dea17bcb60e2a50c5",
+  "chain_id": 202610030,
+  "network_id": 202610030,
+  "genesis_sha256": "3417be9f2a9614d330fa68caa298b2fa6ef3876a1db6f8c2b56cce8d32500fba",
+  "genesis_block_hash": "0xb0b6ebc9a6c2e051855c2d61dff9a51635ea1db09c898a3c0126e27b9e779314",
+  "btc_network_id": "btc-mainnet",
+  "btc_index_origin_height": 963800,
+  "btc_activation_registry_id": "53b4bfed53b55a4accbd947d04d113a684f1af896d39d2d9bd984e07ad543f32",
+  "snapshot_trusted_keys_sha256": "ba92705824a6de913de2b64b9804687c50dc9d2e5b3aa6f61de5c169e5afc1d6",
+  "btc_rules_scope": "usdb-testnet-v1"
+}

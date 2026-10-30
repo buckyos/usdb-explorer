@@ -2,12 +2,12 @@
   "schema_version": "usdb-explorer-network-contract:v1",
   "source": {
     "repository": "buckyos/usdb",
-    "revision": "0b946e03c71f70e6dfe0bb1bc44d9e6b3ce803ec",
-    "path": "docker/networks/testnet-v0"
+    "revision": "8d45b31f1bf43565579787069238d17c51e19aa1",
+    "path": "docker/networks/testnet-v1"
   },
   "catalog": {
-    "file": "usdb-testnet-v0.json",
-    "sha256": "0d748a48f53ea75773b75dcbea51f7756537564940278999fdaebebbd2aaa905"
+    "file": "usdb-testnet-v1.json",
+    "sha256": "ba4cc405ab181bad0ea1f4a2c61df27e55e4c09005fcb9370ac1033c80f4419e"
   },
   "rpc": {
     "profile_id": "usdb-explorer-rpc:v1",

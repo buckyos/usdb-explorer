@@ -54,7 +54,7 @@ class PublicReleasePublishTests(unittest.TestCase):
         self.assertEqual(len(self.api.writes), 1)
 
     def test_node_tags_and_branch_names_are_rejected_before_api_access(self):
-        for tag in ("main", "0.2.0", "usdb-testnet-v0-r20", "usdb-explorer-v1.0", "usdb-explorer-v1.0.0\n"):
+        for tag in ("main", "0.2.0", "usdb-testnet-v1-r20", "usdb-explorer-v1.0", "usdb-explorer-v1.0.0\n"):
             with self.subTest(tag=tag), self.assertRaisesRegex(ValueError, "release tag"):
                 PUBLISH.inspect_release(self.api, self.repo, tag)
         self.assertEqual(self.api.writes, [])

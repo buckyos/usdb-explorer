@@ -66,7 +66,7 @@ class PrepareReleaseTests(unittest.TestCase):
         self.assertFalse(any(args[:2] == ("tag", "-d") for args in self.calls))
 
     def test_node_and_old_public_release_ids_are_rejected(self):
-        for version in ("usdb-testnet-v0-r20", "usdb-public-v0.1.0", "v0.2.0", "0.2.0;id"):
+        for version in ("usdb-testnet-v1-r20", "usdb-public-v0.1.0", "v0.2.0", "0.2.0;id"):
             with self.subTest(version=version), self.assertRaises(ValueError):
                 PREPARE.prepare(ROOT, version)
 

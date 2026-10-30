@@ -90,8 +90,10 @@ gh workflow run release-publish.yml --repo buckyos/usdb-explorer --ref main \
 
 新安装器兼容旧安装根目录和 `current` 指针，新增 `usdb-explorer` 命令，并保留 `usdb-public`。
 首次迁移不改配置和 deployment schema，不移动目录、复制数据库或修改凭据。
-实际应用新部署镜像仍按备份 → down → prepare --replace → up 执行，并保持 deployment ID。
+同一网络内应用新镜像仍使用 down → prepare --replace → up，并保持 deployment ID。
+当前分支已切换到 testnet-v1；从 v0 更新必须按[网络重置部署](handbook/network-reset.md)
+清理废弃数据和配置，再从空数据库开始，不要求备份或迁移旧 v0 数据。
 
 `tests/test_migration.py` 使用旧草稿中的真实 v0.1.0 安装脚本/压缩包，离线安装后升级到新版本，
-检查配置、凭据、Compose project、volume identity 和两个命令。测试使用临时目录及 fake Docker，
-不管理真实部署。
+检查工具安装与两个命令，并验证旧网络配置被拒绝、清空部署后创建正确的 v1 身份。
+测试使用临时目录及 fake Docker，不管理真实部署。

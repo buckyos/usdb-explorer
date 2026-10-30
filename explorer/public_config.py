@@ -107,6 +107,8 @@ def load_config(path, kit):
         raise ValueError("invalid public configuration schema or deployment_id")
     if not re.fullmatch(r"usdb-testnet-v[0-9]+", str(value["network"])):
         raise ValueError("select a supported USDB testnet network")
+    if not (kit / "networks" / (value["network"] + ".json")).is_file():
+        raise ValueError("network is not included in this release; testnet-v1 requires a fresh Explorer deployment after the network reset")
     identity = read_json(kit / "networks" / (value["network"] + ".json"))
     if (identity.get("bundle_id") != value["network"] or type(identity.get("chain_id")) is not int
             or type(identity.get("network_id")) is not int or not HASH.fullmatch(str(identity.get("genesis_block_hash", "")))):
@@ -374,7 +376,7 @@ def compose_document(config, identity, lock, root):
                          "INDEXER_UPSTREAM": rpc.get("indexer_url") or "",
                          "SOURCEDAO_URL": config.get("sourcedao_url", ""),
                          "NETWORK_IDENTITY_JSON": json.dumps({key: identity[key] for key in (
-                             "bundle_id", "chain_id", "genesis_block_hash", "btc_network_id", "btc_index_origin_height", "btc_activation_registry_id")}),
+                             "bundle_id", "chain_id", "genesis_block_hash", "btc_network_id", "btc_rules_scope", "btc_index_origin_height", "btc_activation_registry_id")}),
                          "NETWORK_FILE": "/config/network.json"},
             extra_hosts=["host.docker.internal:host-gateway"], volumes=[f"{root}/network.json:/config/network.json:ro"],
             read_only=True, cap_drop=["ALL"]),

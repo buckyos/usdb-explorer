@@ -26,7 +26,7 @@ from common.public_services import PublicRpcFixture, rpc_response, rpc_server
 
 class IngressComparisonTests(unittest.TestCase):
     def setUp(self):
-        self.identity = CONFIG.read_json(PUBLIC.KIT / "networks/usdb-testnet-v0.json")
+        self.identity = CONFIG.read_json(PUBLIC.KIT / "networks/usdb-testnet-v1.json")
         self.rpc = PublicRpcFixture(self.identity)
         self.config = CONFIG.read_json(PUBLIC.KIT / "config.example.json")
         self.config["rpc"] = {"mode": "external", "historical_block": 10, "transaction": self.rpc.transaction,
@@ -257,7 +257,7 @@ class IngressComparisonTests(unittest.TestCase):
 
 class DirectIngressTransportTests(unittest.TestCase):
     def setUp(self):
-        self.identity = CONFIG.read_json(PUBLIC.KIT / "networks/usdb-testnet-v0.json")
+        self.identity = CONFIG.read_json(PUBLIC.KIT / "networks/usdb-testnet-v1.json")
         self.rpc = PublicRpcFixture(self.identity)
 
     def test_http_uses_local_socket_original_host_and_no_environment_proxy(self):

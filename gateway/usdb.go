@@ -31,12 +31,13 @@ type networkCatalog struct {
 	ChainID    uint64 `json:"chain_id"`
 	Genesis    string `json:"genesis_block_hash"`
 	BTCNetwork string `json:"btc_network_id"`
+	RulesScope string `json:"btc_rules_scope"`
 	BTCOrigin  uint32 `json:"btc_index_origin_height"`
 	Registry   string `json:"btc_activation_registry_id"`
 }
 
 func (n networkCatalog) valid(g *gateway) bool {
-	return n.Bundle != "" && "0x"+strconv.FormatUint(n.ChainID, 16) == g.chainID && n.Genesis == g.genesis &&
+	return n.Bundle != "" && n.RulesScope != "" && "0x"+strconv.FormatUint(n.ChainID, 16) == g.chainID && n.Genesis == g.genesis &&
 		digestText.MatchString(n.Registry) && (n.BTCNetwork == "btc-mainnet" || n.BTCNetwork == "btc-testnet")
 }
 
@@ -182,9 +183,18 @@ func (s externalState) valid(g *gateway, q url.Values) bool {
 		!digestText.MatchString(s.VersionID) || len(s.Versions) == 0 || s.APIVersion == "" || s.Semantics == "" {
 		return false
 	}
+	// Scoped v1 registries identify both the Bitcoin source and the USDB ruleset.
+	var scope map[string]string
+	if json.Unmarshal(s.Versions["scope"], &scope) != nil || len(scope) != 2 ||
+		scope["network_id"] != g.catalog.BTCNetwork || scope["rules_scope"] != g.catalog.RulesScope {
+		return false
+	}
 	for key, raw := range s.Versions {
 		if len(key) > 64 || len(raw) > 130 {
 			return false
+		}
+		if key == "scope" {
+			continue
 		}
 		var text string
 		if json.Unmarshal(raw, &text) != nil {

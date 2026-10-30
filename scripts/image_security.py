@@ -35,7 +35,7 @@ def scan_plan(repo, gateway_image, enforcement=None, frontend_image=None):
     """Scan both first-party images, all runtime dependencies and frozen Go/Node build images."""
     require(GATEWAY.fullmatch(gateway_image), "expected an immutable usdb-explorer-gateway image")
     check_network(repo)
-    network = read_json(repo / "explorer/networks/usdb-testnet-v0.json")["bundle_id"]
+    network = read_json(repo / "explorer/networks/usdb-testnet-v1.json")["bundle_id"]
     mode = security_enforcement(network, enforcement)
     images = image_lock(repo / "explorer")["images"]
     if images["frontend"].get("build_from_source"):
@@ -53,8 +53,8 @@ def scan_input(repo, name, reference, revision, enforcement):
     require(re.fullmatch(r"[0-9a-f]{40}", revision), "expected an exact Explorer source commit")
     head = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
     require(head == revision, "scan checkout differs from requested source revision")
-    for path in ("explorer/assets/images.lock.json", "explorer/networks/usdb-testnet-v0.json",
-                 "explorer/networks/usdb-testnet-v0.contract.json"):
+    for path in ("explorer/assets/images.lock.json", "explorer/networks/usdb-testnet-v1.json",
+                 "explorer/networks/usdb-testnet-v1.contract.json"):
         committed = subprocess.check_output(["git", "-C", str(repo), "show", f"{revision}:{path}"])
         require((repo / path).read_bytes() == committed, "scan inputs differ from the selected source commit")
     gateway = reference if name == "gateway" else "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "0" * 64
@@ -64,11 +64,11 @@ def scan_input(repo, name, reference, revision, enforcement):
     require(any(row["name"] == name and row["image_reference"] == reference for row in plan["include"]),
             "scan image differs from the selected source lock")
     return {"name": name, "image_reference": reference, "platform": "linux/amd64",
-            "enforcement": enforcement, "network": "usdb-testnet-v0",
+            "enforcement": enforcement, "network": "usdb-testnet-v1",
             "explorer_source_revision": revision,
             "image_source_revision": revision if name == "gateway" or (name == "frontend" and custom_frontend) else None,
             "image_lock_sha256": sha256(repo / "explorer/assets/images.lock.json"),
-            "network_contract_sha256": sha256(repo / "explorer/networks/usdb-testnet-v0.contract.json")}
+            "network_contract_sha256": sha256(repo / "explorer/networks/usdb-testnet-v1.contract.json")}
 
 
 def canonical_reference(reference):

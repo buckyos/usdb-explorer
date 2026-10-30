@@ -18,7 +18,7 @@ from network_contract import check_network
 from release_installer import render_installer
 
 FILES = ("usdb-explorer", "usdb-public", "usdb_public.py", "public_setup.py", "public_status.py", "public_config.py", "public_checks.py", "ingress_checks.py", "faucet_config.py", "faucet_cli.py", "config.example.json",
-         "assets/images.lock.json", "networks/usdb-testnet-v0.json", "networks/usdb-testnet-v0.contract.json", "README.md")
+         "assets/images.lock.json", "networks/usdb-testnet-v1.json", "networks/usdb-testnet-v1.contract.json", "README.md")
 
 
 def package(repo, output, version, gateway_image, frontend_image=None):

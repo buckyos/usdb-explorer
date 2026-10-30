@@ -15,7 +15,8 @@ func publicFixture(t *testing.T, mutate func(string, []json.RawMessage, map[stri
 	hash := strings.Repeat("a", 64)
 	state := map[string]any{"btc_height": 100, "snapshot_id": hash, "stable_block_hash": hash, "stable_lag": 6,
 		"local_state_commit": hash, "system_state_id": hash, "balance_history_api_version": "1.0.0", "balance_history_semantics_version": "v1",
-		"activation_registry_id": hash, "active_version_set": map[string]any{"uip0001": 1, "energy": "v1"}, "active_version_set_id": hash}
+		"activation_registry_id": hash, "active_version_set": map[string]any{"uip0001": 1, "energy": "v1",
+			"scope": map[string]string{"network_id": "btc-mainnet", "rules_scope": "usdb-testnet-v1"}}, "active_version_set_id": hash}
 	profile := map[string]any{"pass_id": fixturePass, "owner_script_hash": hash, "state": "active", "pass_kind": "standard",
 		"raw_energy": "340282366920938463463374607431768211455", "collab_contribution": "0", "effective_energy": "340282366920938463463374607431768211455", "level": 1,
 		"difficulty_factor_bps": 9900, "collab_breakdown_count": 0}
@@ -69,7 +70,7 @@ func publicFixture(t *testing.T, mutate func(string, []json.RawMessage, map[stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	g.catalog = networkCatalog{Bundle: "fixture", ChainID: 1, Genesis: g.genesis, BTCNetwork: "btc-mainnet", BTCOrigin: 90, Registry: hash}
+	g.catalog = networkCatalog{Bundle: "fixture", ChainID: 1, Genesis: g.genesis, BTCNetwork: "btc-mainnet", RulesScope: "usdb-testnet-v1", BTCOrigin: 90, Registry: hash}
 	g.network = []byte(`{"chainName":"USDB Testnet","rpcUrls":["https://example.invalid/rpc"],"blockExplorerUrls":["https://example.invalid"],"nativeCurrency":{"name":"USDB","symbol":"USDB","decimals":18}}`)
 	g.explorerURL = server.URL
 	return g
@@ -213,5 +214,43 @@ func TestUSDBNetworkReadinessAndMalformedStateAreRejected(t *testing.T) {
 	g.ServeHTTP(w, httptest.NewRequest("POST", "/api/usdb/v1/passes", strings.NewReader(`{"method":"reset"}`)))
 	if w.Code != 405 {
 		t.Fatal(w.Code)
+	}
+}
+
+// The v1 node includes a structured scope alongside scalar activation versions.
+func TestUSDBScopedActivationVersionsRejectForeignAndMalformedScopes(t *testing.T) {
+	for _, row := range []struct {
+		name  string
+		field string
+		value any
+	}{
+		{"missing", "scope", nil},
+		{"null", "scope", nil},
+		{"scalar", "scope", "usdb-testnet-v1"},
+		{"foreign_bitcoin", "scope", map[string]string{"network_id": "btc-testnet", "rules_scope": "usdb-testnet-v1"}},
+		{"foreign_rules", "scope", map[string]string{"network_id": "btc-mainnet", "rules_scope": "usdb-testnet-v0"}},
+		{"extra_field", "scope", map[string]string{"network_id": "btc-mainnet", "rules_scope": "usdb-testnet-v1", "future": "unknown"}},
+		{"nested_value", "scope", map[string]any{"network_id": "btc-mainnet", "rules_scope": map[string]string{"name": "usdb-testnet-v1"}}},
+		{"unrecognized_object", "future", map[string]string{"network_id": "btc-mainnet"}},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			g := publicFixture(t, func(method string, _ []json.RawMessage, response map[string]any) {
+				if method == "get_candidate_set_view" || method == "get_pass_economic_profile" {
+					state := response["result"].(map[string]any)["external_state"].(map[string]any)
+					versions := state["active_version_set"].(map[string]any)
+					if row.name == "missing" {
+						delete(versions, "scope")
+					} else {
+						versions[row.field] = row.value
+					}
+				}
+			})
+			for _, path := range []string{"passes", "passes/" + fixturePass} {
+				response := getPublic(g, path)
+				if response.Code != 502 || !strings.Contains(response.Body.String(), "INVALID_UPSTREAM_RESPONSE") {
+					t.Fatal(path, response.Code, response.Body)
+				}
+			}
+		})
 	}
 }

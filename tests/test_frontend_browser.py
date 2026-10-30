@@ -55,8 +55,8 @@ def response(resource, mode):
     if mode == "unavailable":
         return 503, {**base, "error": {"code": "INDEXER_NOT_READY"}}
     if resource.startswith("overview"):
-        return 200, {**base, "network": {"name": "USDB Testnet", "chain_id": "202608250", "chain_id_hex": hex(202608250),
-                     "genesis_hash": "0x" + HASH, "bundle_id": "usdb-testnet-v0", "btc_network": "btc-mainnet",
+        return 200, {**base, "network": {"name": "USDB Testnet", "chain_id": "202610030", "chain_id_hex": hex(202610030),
+                     "genesis_hash": "0x" + HASH, "bundle_id": "usdb-testnet-v1", "btc_network": "btc-mainnet",
                      "btc_index_origin_height": 963800, "rpc_urls": ["http://127.0.0.1:28080/rpc"],
                      "explorer_urls": ["http://127.0.0.1:28080"],
                      "native_currency": {"name": "USDB", "symbol": "USDB", "decimals": 18}},
@@ -79,7 +79,7 @@ def frontend(image, *, rpc_url="http://localhost/rpc"):
     # pointer transitions can reach the interactive sidebar submenu.
     env = {"HOSTNAME": "0.0.0.0", "NEXT_PUBLIC_NETWORK_NAME": "USDB Testnet", "NEXT_PUBLIC_NETWORK_SHORT_NAME": "USDB",
            "NEXT_PUBLIC_APP_INSTANCE": "pw",
-           "NEXT_PUBLIC_NETWORK_ID": "202608250", "NEXT_PUBLIC_IS_TESTNET": "true", "NEXT_PUBLIC_APP_HOST": "localhost",
+           "NEXT_PUBLIC_NETWORK_ID": "202610030", "NEXT_PUBLIC_IS_TESTNET": "true", "NEXT_PUBLIC_APP_HOST": "localhost",
            "NEXT_PUBLIC_APP_PROTOCOL": "http", "NEXT_PUBLIC_API_HOST": "localhost", "NEXT_PUBLIC_API_PROTOCOL": "http",
            "NEXT_PUBLIC_API_BASE_PATH": "/", "NEXT_PUBLIC_API_WEBSOCKET_PROTOCOL": "ws", "NEXT_PUBLIC_NETWORK_RPC_URL": rpc_url,
            "NEXT_PUBLIC_NETWORK_CURRENCY_NAME": "USDB", "NEXT_PUBLIC_NETWORK_CURRENCY_SYMBOL": "USDB",

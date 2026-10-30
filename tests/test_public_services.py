@@ -33,7 +33,7 @@ class PublicServicesTests(unittest.TestCase):
         self.config["rpc"] = {"read_url": "http://archive.internal:8545"}
         self.config["ingress"] = {"mode": "external", "explorer_url": "http://127.0.0.1:28082"}
         self.config["resources"]["other_services_memory_gib"] = 0
-        self.identity = CONFIG.read_json(KIT / "networks/usdb-testnet-v0.json")
+        self.identity = CONFIG.read_json(KIT / "networks/usdb-testnet-v1.json")
         self.rpc = PublicRpcFixture(self.identity)
         self.config["rpc"]["transaction"] = self.rpc.transaction
         self.config["rpc"]["historical_block"] = 10
@@ -59,6 +59,28 @@ class PublicServicesTests(unittest.TestCase):
             self.assertNotIn("ports", doc["services"][name])
         for forbidden in ("node.env", "usdb-indexer", "archive-data"):
             self.assertNotIn(forbidden, json.dumps(doc))
+
+    def test_reset_network_rejects_v0_config_before_preparing_or_contacting_docker(self):
+        self.config["network"] = "usdb-testnet-v0"
+        self.save()
+        with mock.patch.object(PUBLIC, "docker") as docker:
+            with self.assertRaisesRegex(ValueError, "testnet-v1 requires a fresh Explorer deployment"):
+                PUBLIC.prepare(self.input, self.state)
+            docker.assert_not_called()
+        self.assertFalse(self.state.exists())
+
+    def test_v1_identity_reaches_backend_gateway_and_wallet(self):
+        doc = self.prepare()
+        chain_id = self.identity["chain_id"]
+        self.assertEqual(doc["services"]["backend"]["environment"]["CHAIN_ID"], str(chain_id))
+        self.assertEqual(doc["services"]["frontend"]["environment"]["NEXT_PUBLIC_NETWORK_ID"], str(chain_id))
+        gateway = doc["services"]["gateway"]["environment"]
+        self.assertEqual(gateway["CHAIN_ID_HEX"], hex(chain_id))
+        self.assertEqual(gateway["GENESIS_HASH"], self.identity["genesis_block_hash"])
+        catalog = json.loads(gateway["NETWORK_IDENTITY_JSON"])
+        self.assertEqual(catalog["btc_activation_registry_id"], self.identity["btc_activation_registry_id"])
+        self.assertEqual(catalog["btc_rules_scope"], "usdb-testnet-v1")
+        self.assertEqual(CONFIG.read_json(self.state / "network.json")["chainId"], hex(chain_id))
 
     def test_public_urls_are_independent_of_local_bindings_and_rpc_destinations(self):
         self.config["ingress"]["explorer_url"] = "https://explorer.example.com"

@@ -19,7 +19,9 @@ explorer/usdb-explorer prepare --config /path/to/config.json --state-dir /path/t
 ```
 
 `usdb-public` 保留为兼容命令。原有配置/部署 schema、默认 `~/.config/usdb-public`、
-`~/.local/share/usdb-public`、deployment ID 和数据库 volume 身份继续使用。
+`~/.local/share/usdb-public` 继续使用。当前网络为 `usdb-testnet-v1`，chain ID `202610030`。
+v0 到 v1 是网络重置，按[重置部署](docs/handbook/network-reset.md)清理废弃 Explorer 数据并重新索引；
+这不涉及节点数据或节点重建。
 历史 `usdb-public-v0.1.0` 附件保留在原 USDB 仓库。
 
 ## 工程边界
@@ -36,7 +38,7 @@ explorer/usdb-explorer prepare --config /path/to/config.json --state-dir /path/t
 | `docs/` | 用户与运维 handbook、网络接口、发布与迁移说明、历史验收记录 |
 
 日常构建和测试不需要 USDB/go-ethereum/SourceDAO checkout。网络身份和 RPC 要求通过已提交的
-[契约文件](explorer/networks/usdb-testnet-v0.contract.json)关联固定 USDB commit；刷新流程见
+[契约文件](explorer/networks/usdb-testnet-v1.contract.json)关联固定 USDB commit；刷新流程见
 [网络契约](docs/network-contract.md)。
 
 ## 验证

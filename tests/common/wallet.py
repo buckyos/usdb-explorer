@@ -31,7 +31,7 @@ def exercise_wallet(page, context, expect, network, output):
     expect(feedback).to_contain_text("Network is available in your wallet")
     calls = page.evaluate("window.__walletCalls")
     assert len(calls) == 1 and calls[0]["method"] == "wallet_addEthereumChain"
-    assert calls[0]["params"][0]["chainId"] == hex(202608250)
+    assert calls[0]["params"][0]["chainId"] == hex(202610030)
     assert calls[0]["params"][0]["nativeCurrency"]["symbol"] == "USDB"
     assert calls[0]["params"][0]["rpcUrls"] == ["http://127.0.0.1:28080/rpc"]
 

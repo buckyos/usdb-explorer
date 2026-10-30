@@ -327,13 +327,19 @@ def source_inputs(repo, revision):
                 return value
         raise ValueError(f"missing compatibility constant: {path}:{name}")
 
-    catalog = load_json_bytes(read("explorer/networks/usdb-testnet-v0.json").encode(), "network catalog")
+    # Each revision owns its default network, including the previous published release.
+    config = load_json_bytes(read("explorer/config.example.json").encode(), "default configuration")
+    network = config.get("network", "")
+    require(isinstance(network, str) and re.fullmatch(r"usdb-testnet-v[0-9]+", network), "invalid default network")
+    catalog = load_json_bytes(read(f"explorer/networks/{network}.json").encode(), "network catalog")
     identity_keys = ("bundle_id", "chain_id", "network_id", "genesis_block_hash", "btc_network_id",
                      "btc_index_origin_height", "btc_activation_registry_id")
-    contract = load_json_bytes(read("explorer/networks/usdb-testnet-v0.contract.json").encode(), "RPC contract")
+    network_identity = {key: catalog[key] for key in identity_keys}
+    network_identity["btc_rules_scope"] = catalog.get("btc_rules_scope", "legacy")
+    contract = load_json_bytes(read(f"explorer/networks/{network}.contract.json").encode(), "RPC contract")
     lock = load_json_bytes(read("explorer/assets/images.lock.json").encode(), "image lock")
     gateway = git(repo, "ls-tree", "-r", revision, "--", "gateway", "explorer/assets/Dockerfile.gateway")
-    result = {"network": {key: catalog[key] for key in identity_keys},
+    result = {"network": network_identity,
             "rpc_contract": contract["rpc"],
             "config_schema": constant("explorer/public_config.py", "CONFIG_SCHEMA"),
             "deployment_schema": constant("explorer/usdb_public.py", "DEPLOYMENT_SCHEMA"),

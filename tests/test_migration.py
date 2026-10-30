@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Upgrade the actual legacy installer in an isolated home without changing deployment data."""
+"""Verify an installed legacy network requires a fresh v1 deployment after tool upgrade."""
 import hashlib
 import json
 import os
@@ -54,14 +54,11 @@ class MigrationTests(unittest.TestCase):
         }.items():
             self.assertEqual(hashlib.sha256((FIXTURE / name).read_bytes()).hexdigest(), digest)
 
-    def test_real_legacy_install_upgrades_with_config_credentials_volumes_and_alias_preserved(self):
+    def test_legacy_install_requires_network_reset_after_tool_upgrade(self):
         self.run_command("bash", str(self.assets / "install-usdb-public-v0.1.0.sh"), *self.install_options)
         self.run_command(str(self.commands / "usdb-public"), "prepare", "--config", str(self.config), "--state-dir", str(self.state))
         before_config = self.config.read_bytes()
         credentials = (self.state / "credentials.json").read_bytes()
-        before_compose = json.loads((self.state / "compose.json").read_bytes())
-        marker = self.root / "existing-database-marker"
-        marker.write_bytes(b"existing operator data")
         PACKAGE.package(ROOT, self.assets, "0.2.0", "ghcr.io/buckyos/usdb-explorer-gateway@sha256:" + "ab" * 32, frontend_image="ghcr.io/buckyos/usdb-explorer-frontend@sha256:" + "cd" * 32)
         self.run_command("bash", str(self.assets / "install-usdb-explorer-v0.2.0.sh"), *self.install_options)
         self.assertEqual(os.readlink(self.storage / "current"), "releases/usdb-explorer-v0.2.0")
@@ -75,12 +72,19 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(observed["deployment"]["release_version"], "0.1.0")
         self.assertEqual(observed["deployment"]["rpc_mode"], "external")
         self.assertEqual(observed["version_relation"], "different")
-        self.run_command(str(self.commands / "usdb-explorer"), "prepare", "--replace", "--config", str(self.config), "--state-dir", str(self.state))
-        after_compose = json.loads((self.state / "compose.json").read_bytes())
-        self.assertEqual(after_compose["name"], before_compose["name"])
-        self.assertEqual(after_compose["volumes"], before_compose["volumes"])
-        self.assertEqual((self.state / "credentials.json").read_bytes(), credentials)
-        self.assertEqual(marker.read_bytes(), b"existing operator data")
+        rejected = subprocess.run([str(self.commands / "usdb-explorer"), "prepare", "--replace", "--config", str(self.config),
+                                   "--state-dir", str(self.state)], env=self.env, text=True, capture_output=True, timeout=30)
+        self.assertEqual(rejected.returncode, 1)
+        self.assertIn("testnet-v1 requires a fresh Explorer deployment", rejected.stderr)
+        # The reset starts from empty state and the installed release's v1 defaults.
+        shutil.rmtree(self.state)
+        shutil.copyfile(self.storage / "current/config.example.json", self.config)
+        self.run_command(str(self.commands / "usdb-explorer"), "prepare", "--config", str(self.config), "--state-dir", str(self.state))
+        identity = json.loads((self.state / "identity.json").read_bytes())
+        self.assertEqual(identity["bundle_id"], "usdb-testnet-v1")
+        self.assertEqual(identity["chain_id"], 202610030)
+        self.assertNotEqual((self.state / "credentials.json").read_bytes(), credentials)
+        self.assertFalse(list(self.state.parent.glob("default.backup-*")))
         calls = [json.loads(line) for line in (self.root / "docker.log").read_text().splitlines()]
         self.assertTrue(all(call[0] in {"ps", "inspect"} or
                             (call[0] == "compose" and call[-4:] == ["ps", "--all", "--format", "json"])

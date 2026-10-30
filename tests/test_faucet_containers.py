@@ -35,7 +35,7 @@ class ChainFixture:
     def respond(self, payload):
         method, params = payload["method"], payload["params"]
         with self.mutex:
-            values = {"eth_chainId": hex(202608250), "eth_syncing": False, "eth_getBalance": self.balance,
+            values = {"eth_chainId": hex(202610030), "eth_syncing": False, "eth_getBalance": self.balance,
                       "eth_gasPrice": hex(10**9),
                       "eth_getCode": "0x", "eth_blockNumber": "0xc"}
             if method == "eth_getBlockByNumber":
@@ -100,7 +100,7 @@ def exercise(image):
         cleanup.callback(server.server_close)
         cleanup.callback(server.shutdown)
         url = f"http://{gateway_ip}:{server.server_port}"
-        config = {"chain_id": "202608250", "genesis_hash": "0x" + "a" * 64, "read_url": url, "broadcast_url": url,
+        config = {"chain_id": "202610030", "genesis_hash": "0x" + "a" * 64, "read_url": url, "broadcast_url": url,
                   "origin": "http://explorer.invalid", "proxy_token": "b" * 64, "claim_amount": "1", "daily_budget": "100",
                   "gas_reserve": "0.01", "max_gas_price_gwei": "100", "cooldown_seconds": 86400,
                   "ip_daily_claims": 1, "ip_requests_per_minute": 10, "confirmations": 3}

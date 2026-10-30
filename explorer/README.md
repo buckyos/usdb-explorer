@@ -19,8 +19,10 @@
 ## 当前范围与发布状态
 
 服务包括 Blockscout backend/frontend、PostgreSQL、Redis 和 Go RPC 网关。Nginx 可选。
-网络身份来自 `networks/usdb-testnet-v0.json`，来源 USDB commit 与摘要由相邻的契约文件锁定；
-工具的版本是 `vX.Y.Z`，与节点 `usdb-testnet-v0-rN` 分开升级，网络 chain ID 不变。
+网络身份来自 `networks/usdb-testnet-v1.json`，来源 USDB commit 与摘要由相邻的契约文件锁定；
+工具的版本是 `vX.Y.Z`，与节点 `usdb-testnet-v1-rN` 分开升级。
+当前 chain ID 为 `202610030`（`0xc13956e`）；v0 到 v1 是网络重置，需从空 Explorer 数据库重新索引，
+不迁移或备份废弃 v0 数据，见[重置部署](../docs/handbook/network-reset.md)。
 
 测试网镜像安全结果采用 `report-only`，允许显式设置 `ingress.exposure=public`，使用 HTTP IP＋端口预览或 HTTPS。
 `qualified_for_public_exposure=false` 继续记录尚未完成的镜像验收，不会被自动改为已通过。
@@ -130,7 +132,7 @@ Docker Desktop 或独立 RPC 服务器使用 `rpc.mode=external`。
 | 设置 | 含义 |
 | --- | --- |
 | `deployment_id` | 独立 Compose project 名；同一数据库部署保持不变 |
-| `network` | 包内经过冻结的网络，目前支持 `usdb-testnet-v0` |
+| `network` | 包内经过冻结的网络，目前支持 `usdb-testnet-v1` |
 | `rpc.mode` | 新安装为 `local-node`；旧配置省略此项仍按 `external`，不会自动改上游 |
 | `rpc.read_url` | 历史状态查询端点，Blockscout 与公共只读 RPC 使用 |
 | `rpc.trace_url` | 私有 tracing 端点，省略时使用 read_url |
@@ -341,6 +343,9 @@ USDB 区块奖励与分账通过独立的[逐块经济核验页面](../docs/hand
 
 ## 6. 独立升级、停止与恢复
 
+以下为同一网络内的升级。v0 到 v1 请使用[网络重置部署](../docs/handbook/network-reset.md)，
+从空 Explorer 数据库开始，不使用保留旧数据的替换流程。
+
 ```bash
 usdb-public down
 # 使用新版本 release 正文给出的一键安装命令，例如：
@@ -413,12 +418,13 @@ Publish 复用原附件并验证 source revision、network contract、installer�
 - 安装：`~/.local/share/usdb-public`
 
 安装新版本保留旧版本目录和原配置；不会停止、启动或重建容器。
-需要应用新的部署配置或镜像时，按原升级流程备份数据库，`down` → `prepare --replace` → `up`。
-保留 `deployment_id`、数据库凭据、Compose project 和 volume 名称；不要因工程改名而手动更改它们。
+同一网络内应用新的配置或镜像时，按原升级流程备份数据库，`down` → `prepare --replace` → `up`，
+保留 `deployment_id`、数据库凭据、Compose project 和 volume 名称。
+本次 v0 到 v1 属于网络重置，按[重置部署](../docs/handbook/network-reset.md)清理旧数据和配置后重新创建。
 
 ## 9. 网络契约与上游资格
 
-`explorer/networks/usdb-testnet-v0.contract.json` 固定来源 USDB commit、catalog SHA-256 和 RPC profile。
+`explorer/networks/usdb-testnet-v1.contract.json` 固定来源 USDB commit、catalog SHA-256 和 RPC profile。
 普通构建只读本仓库内的契约文件，不读取其他 checkout。
 更新方法见 [网络接口](https://github.com/buckyos/usdb-explorer/blob/main/docs/network-contract.md)。
 

@@ -11,6 +11,7 @@
 | 领取测试币、启用水龙头、矿工补款与恢复 | [测试网水龙头](faucet.md) |
 | 查区块、交易、地址，理解空链和数据延迟 | [使用浏览器](using-explorer.md) |
 | 安装 Explorer、连接同机节点、配置局域网或公网入口 | [安装与接入](installation.md) |
+| 将废弃的 testnet-v0 Explorer 重置为 testnet-v1 | [网络重置部署](network-reset.md) |
 | 理解 local-node/bundled、外部 Nginx、端口映射、域名和 HTTPS | [部署模式与访问地址](networking.md) |
 | 使用已有域名证书将 HTTP 迁移到 HTTPS，验证入口并续期 | [内置 Nginx HTTPS 操作指南](https.md) |
 | 判断预检结果、检查服务、升级和备份 | [日常运维](operations.md) |
@@ -24,6 +25,7 @@
 
 | 功能 | 版本范围 |
 | --- | --- |
+| testnet-v1 网络契约、默认配置与钱包 chain ID | 本分支新增，需包含此更新的 release；旧 v0 部署需重置 |
 | 同机部署、内置 Nginx、`configure --local-node` | v0.2.3 起 |
 | 可重复运行的 `setup`：连接、HTTP/HTTPS 入口与水龙头配置 | 本分支新增，需后续 release |
 | 默认 `check` 对比上游、本机、LAN 和公布入口，分别报告结果 | v0.2.7 之后新增，需包含此改动的 release |

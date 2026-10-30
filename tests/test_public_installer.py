@@ -55,7 +55,7 @@ class PublicInstallerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(os.readlink(self.storage / "current"), "releases/usdb-explorer-v0.1.0")
         self.assertEqual(self.config.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(json.loads(self.config.read_text())["network"], "usdb-testnet-v0")
+        self.assertEqual(json.loads(self.config.read_text())["network"], "usdb-testnet-v1")
         for key in ("historical_block", "transaction"):
             self.assertNotIn(key, json.loads(self.config.read_text())["rpc"])
         command = subprocess.run([str(self.commands / "usdb-public"), "prepare", "--help"], env=self.env,

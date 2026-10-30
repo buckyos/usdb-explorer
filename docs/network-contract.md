@@ -4,7 +4,15 @@
 `usdb-explorer-network-contract:v1` 契约。契约记录 USDB 源仓库、精确 commit、catalog SHA-256、
 `usdb-explorer-rpc:v1` 能力要求与当前已支持的展示语义。
 
-当前固定 USDB `0b946e03c71f70e6dfe0bb1bc44d9e6b3ce803ec`，保持原有 chain ID/genesis。
+当前仅包含 `usdb-testnet-v1`，固定 node1 的 r25 源码
+`8d45b31f1bf43565579787069238d17c51e19aa1`。chain ID 为 `202610030`（`0xc13956e`），
+genesis 为 `0xb0b6ebc9a6c2e051855c2d61dff9a51635ea1db09c898a3c0126e27b9e779314`，
+BTC activation registry 为 `53b4bfed53b55a4accbd947d04d113a684f1af896d39d2d9bd984e07ad543f32`，
+rules scope 为 `usdb-testnet-v1`。v0 到 v1 是网络重置，按[重置部署](handbook/network-reset.md)
+从空数据库重新索引，不保留 v0 catalog 或增加旧链兼容路径。
+RPC profile 仍为 `usdb-explorer-rpc:v1`；网络版本更新不等于 JSON-RPC schema 更新。
+UIP-0006 的 `active_version_set.scope` 是包含 `network_id` 与 `rules_scope` 的对象；
+网关对照冻结 catalog 校验两个字段，并保留原始版本集合用于历史状态查询。
 RPC URL 属于操作者配置，不作为权威网络身份来源。
 
 需要更新时，在对应 USDB checkout 运行其导出工具：

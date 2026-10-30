@@ -40,7 +40,7 @@ type fakeChain struct {
 }
 
 func testConfig() Config {
-	return Config{ChainID: "202608250", Genesis: "0x" + strings.Repeat("a", 64), ReadURL: "http://read.invalid", BroadcastURL: "http://write.invalid", Origin: "http://explorer.invalid", ProxyToken: strings.Repeat("b", 64), ClaimAmount: "1", DailyBudget: "100", GasReserve: "0.01", MaxGasPriceGwei: "100", CooldownSeconds: 86400, IPDailyClaims: 10, IPRequestsPerMinute: 10, Confirmations: 3}
+	return Config{ChainID: "202610030", Genesis: "0x" + strings.Repeat("a", 64), ReadURL: "http://read.invalid", BroadcastURL: "http://write.invalid", Origin: "http://explorer.invalid", ProxyToken: strings.Repeat("b", 64), ClaimAmount: "1", DailyBudget: "100", GasReserve: "0.01", MaxGasPriceGwei: "100", CooldownSeconds: 86400, IPDailyClaims: 10, IPRequestsPerMinute: 10, Confirmations: 3}
 }
 
 func newChain(c Config) *fakeChain {

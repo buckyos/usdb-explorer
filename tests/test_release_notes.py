@@ -166,7 +166,7 @@ class ReleaseNotesTests(unittest.TestCase):
             NOTES.range_changes(self.repo, self.git("rev-parse", "HEAD"), self.previous["source_revision"])
 
     def test_automatic_network_and_runtime_evidence_overrides_missing_flags(self):
-        catalog = self.repo / "explorer/networks/usdb-testnet-v0.json"
+        catalog = self.repo / "explorer/networks/usdb-testnet-v1.json"
         value = NOTES.load_json(catalog)
         value["chain_id"] += 1
         catalog.write_bytes(NOTES.canonical_json(value))
@@ -179,6 +179,34 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(changes["compatibility"]["classification"], "network_reset")
         self.assertTrue(changes["compatibility"]["flags"]["restart_required"])
         self.assertEqual({entry["path"] for entry in changes["compatibility"]["source_changes"]}, {"network", "images.postgres"})
+
+    def test_network_reset_comparison_reads_each_revisions_catalog(self):
+        # Published releases keep their own filenames after the current catalog is replaced.
+        config_path = self.repo / "explorer/config.example.json"
+        config = NOTES.load_json(config_path)
+        config["network"] = "usdb-testnet-v2"
+        config_path.write_bytes(NOTES.canonical_json(config))
+        directory = self.repo / "explorer/networks"
+        catalog_path = directory / "usdb-testnet-v1.json"
+        catalog = NOTES.load_json(catalog_path)
+        catalog["bundle_id"] = "usdb-testnet-v2"
+        catalog["chain_id"] += 1
+        (directory / "usdb-testnet-v2.json").write_bytes(NOTES.canonical_json(catalog))
+        catalog_path.unlink()
+        (directory / "usdb-testnet-v1.contract.json").rename(directory / "usdb-testnet-v2.contract.json")
+        self.commit()
+        changes = self.release()
+        self.assertEqual(changes["compatibility"]["classification"], "network_reset")
+        self.assertEqual({entry["path"] for entry in changes["compatibility"]["source_changes"]}, {"network"})
+
+    def test_rules_scope_change_requires_network_reset(self):
+        catalog = self.repo / "explorer/networks/usdb-testnet-v1.json"
+        value = NOTES.load_json(catalog)
+        value["btc_rules_scope"] = "another-testnet"
+        catalog.write_bytes(NOTES.canonical_json(value))
+        self.commit()
+        changes = self.release()
+        self.assertEqual(changes["compatibility"]["classification"], "network_reset")
 
     def test_go_image_change_requires_restart_for_rebuilt_gateway_and_ca_certificates(self):
         lock = self.repo / "explorer/assets/images.lock.json"

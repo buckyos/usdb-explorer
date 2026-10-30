@@ -4,6 +4,9 @@
 
 ## 1. 准备主机和上游
 
+当前发布源码只包含 `usdb-testnet-v1`（chain ID `202610030`）。已有 v0 Explorer 先按
+[网络重置部署](network-reset.md)清理旧部署，再进行本页安装；安装器不会自动改写旧配置的网络。
+
 Explorer 支持 Linux amd64、Python 3.11+、Docker Engine 25+ 和 Compose v2；同机 USDB 节点
 有更高的 Docker/Compose 基线时，以节点要求为准。同机模式需要本机 rootful Linux Docker。
 独立 Explorer 预览环境以至少 8 GiB 内存为起点，默认容器预算合计 6 GiB；还需计入上游和系统余量。

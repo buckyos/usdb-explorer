@@ -56,7 +56,7 @@ func economicsFixture(t *testing.T, mutate func(string, []json.RawMessage, map[s
 	if err != nil {
 		t.Fatal(err)
 	}
-	g.catalog = networkCatalog{Bundle: "fixture", ChainID: 1, Genesis: hash, BTCNetwork: "btc-mainnet", BTCOrigin: 90, Registry: strings.Repeat("a", 64)}
+	g.catalog = networkCatalog{Bundle: "fixture", ChainID: 1, Genesis: hash, BTCNetwork: "btc-mainnet", RulesScope: "usdb-testnet-v1", BTCOrigin: 90, Registry: strings.Repeat("a", 64)}
 	return g
 }
 

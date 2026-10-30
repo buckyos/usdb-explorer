@@ -1,7 +1,7 @@
 {
   "schema_version": "usdb-public-config:v1",
   "deployment_id": "usdb-testnet-explorer",
-  "network": "usdb-testnet-v0",
+  "network": "usdb-testnet-v1",
   "rpc": {
     "mode": "local-node",
     "read_url": "http://127.0.0.1:8545"

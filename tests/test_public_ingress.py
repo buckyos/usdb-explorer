@@ -32,7 +32,7 @@ class LocalRpcContainers(unittest.TestCase):
             root = Path(temporary)
             config = read_json(ROOT / "explorer/config.example.json")
             config["deployment_id"] = "explorer-local-test-" + uuid.uuid4().hex[:10]
-            identity = read_json(ROOT / "explorer/networks/usdb-testnet-v0.json")
+            identity = read_json(ROOT / "explorer/networks/usdb-testnet-v1.json")
             fixtures, requests = {}, {}
             for route in ("read", "trace", "broadcast"):
                 fixtures[route] = PublicRpcFixture(identity)

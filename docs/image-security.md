@@ -6,7 +6,7 @@
 | 范围 | 行为 |
 | --- | --- |
 | 普通 main/PR CI | 功能、安装、迁移、gateway、Nginx 和策略回归；不扫描正在变化的公网镜像 |
-| 当前 testnet-v0 release build | 七个固定镜像 digest 均扫描；High/Critical 为 report-only |
+| 当前 testnet-v1 release build | 七个固定镜像 digest 均扫描；High/Critical 为 report-only |
 | 手工 Security Review | 相同镜像集合，可选 report-only 或 strict |
 | 主网 | 尚不支持部署；策略层固定 strict，拒绝 report-only 请求 |
 | 扫描/数据库下载错误、缺少目标或证据、digest/source/platform 不符、上传失败 | 所有模式均失败 |
@@ -49,7 +49,7 @@ frontend 同样需填写本次构建的 immutable digest。其余镜像自动来
 ## 部署行为
 
 原配置 schema、路径、deployment ID、凭据和数据库 volume 保持兼容；默认 exposure 仍为 private。
-testnet-v0 可以显式配置 `ingress.exposure=public`，使用临时 HTTP IP＋端口预览或 HTTPS；
+testnet-v1 可以显式配置 `ingress.exposure=public`，使用临时 HTTP IP＋端口预览或 HTTPS；
 prepare/up 会提示未完成镜像验收。external 模式的 frontend/gateway 端口始终绑定 loopback，
 由操作者的反向代理提供入口。bundled 模式可使用公网监听地址；选择 HTTPS 时要求已有证书，
 并将 HTTP 重定向到配置的 HTTPS origin。HTTP 例外只适用于支持的测试网，不改变主网策略。

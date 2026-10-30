@@ -69,7 +69,7 @@ class ImageSecurityTests(unittest.TestCase):
 
     def test_mainnet_cannot_inherit_testnet_report_only(self):
         self.assertEqual(SECURITY.security_enforcement("usdb-mainnet-v1"), "strict")
-        for network, requested in (("usdb-mainnet-v1", "report-only"), ("unknown", None), ("usdb-testnet-v0", "disabled")):
+        for network, requested in (("usdb-mainnet-v1", "report-only"), ("unknown", None), ("usdb-testnet-v1", "disabled")):
             with self.subTest(network=network), self.assertRaises(ValueError):
                 SECURITY.security_enforcement(network, requested)
 

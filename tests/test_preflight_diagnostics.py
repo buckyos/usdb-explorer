@@ -25,7 +25,7 @@ SECRET = "do-not-print-upstream-secret"
 
 class PreflightDiagnosticsTests(unittest.TestCase):
     def setUp(self):
-        self.identity = CONFIG.read_json(KIT / "networks/usdb-testnet-v0.json")
+        self.identity = CONFIG.read_json(KIT / "networks/usdb-testnet-v1.json")
         self.rpc = PublicRpcFixture(self.identity)
         self.config = CONFIG.read_json(KIT / "config.example.json")
         self.config["rpc"] = {"mode": "external", "historical_block": 35, "transaction": self.rpc.transaction,
@@ -200,7 +200,7 @@ class PreflightDiagnosticsTests(unittest.TestCase):
 
 class BootstrapPreflightTests(unittest.TestCase):
     def setUp(self):
-        self.identity = CONFIG.read_json(KIT / "networks/usdb-testnet-v0.json")
+        self.identity = CONFIG.read_json(KIT / "networks/usdb-testnet-v1.json")
         self.config = CONFIG.read_json(KIT / "config.example.json")
         self.config["rpc"] = {"mode": "external", **{name: f"http://{name.replace('_', '-')}.internal"
                               for name in ("read_url", "trace_url", "broadcast_url")}}

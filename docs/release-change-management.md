@@ -38,7 +38,7 @@ GitHub Release 正文合并变更、升级操作、兼容性证据、提交范�
 
 | 输入变化 | 自动影响 |
 | --- | --- |
-| 网络 bundle、chain/network ID、genesis block hash、BTC 网络/起点/registry | `network_reset` |
+| 网络 bundle、chain/network ID、genesis block hash、BTC 网络/起点/registry/rules scope | `network_reset` |
 | RPC contract、配置 schema、deployment schema | `config_change` |
 | 固定运行时镜像 reference、gateway/frontend 源码、上游锁或 Dockerfile | `restart_required` |
 | Go/Node 构建镜像 reference（提供 gateway 二进制和运行时 CA 证书） | `restart_required` |
