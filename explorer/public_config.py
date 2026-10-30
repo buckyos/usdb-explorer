@@ -323,6 +323,8 @@ def compose_document(config, identity, lock, root):
     images = {key: value["reference"] for key, value in lock["images"].items()}
     ingress, rpc = config["ingress"], container_rpc(config)
     url = endpoint(ingress["explorer_url"], origin=True)
+    # The frontend rejects empty numeric ports; advertise the visitor port, not the local listener.
+    visitor_port = str(url.port or (443 if url.scheme == "https" else 80))
     credentials = read_json(root / "credentials.json")
     def service(image, memory, cpus, **options):
         return {"image": image, "platform": "linux/amd64", "restart": "unless-stopped", "mem_limit": memory,
@@ -363,8 +365,8 @@ def compose_document(config, identity, lock, root):
                 "NEXT_PUBLIC_NETWORK_ID": str(identity["chain_id"]), "NEXT_PUBLIC_NETWORK_CURRENCY_NAME": "USDB",
                 "NEXT_PUBLIC_NETWORK_CURRENCY_SYMBOL": "USDB", "NEXT_PUBLIC_NETWORK_CURRENCY_DECIMALS": "18",
                 "NEXT_PUBLIC_NETWORK_RPC_URL": ingress["explorer_url"] + "/rpc", "NEXT_PUBLIC_IS_TESTNET": "true",
-                "NEXT_PUBLIC_API_HOST": url.hostname, "NEXT_PUBLIC_API_PORT": str(url.port or ""), "NEXT_PUBLIC_API_PROTOCOL": url.scheme,
-                "NEXT_PUBLIC_APP_HOST": url.hostname, "NEXT_PUBLIC_APP_PORT": str(url.port or ""), "NEXT_PUBLIC_APP_PROTOCOL": url.scheme,
+                "NEXT_PUBLIC_API_HOST": url.hostname, "NEXT_PUBLIC_API_PORT": visitor_port, "NEXT_PUBLIC_API_PROTOCOL": url.scheme,
+                "NEXT_PUBLIC_APP_HOST": url.hostname, "NEXT_PUBLIC_APP_PORT": visitor_port, "NEXT_PUBLIC_APP_PROTOCOL": url.scheme,
                 "NEXT_PUBLIC_API_BASE_PATH": "/", "NEXT_PUBLIC_HOMEPAGE_CHARTS": "[]", "NEXT_PUBLIC_HOMEPAGE_STATS": "[]",
                 "NEXT_PUBLIC_VIEWS_BLOCK_HIDDEN_FIELDS": '["burnt_fees","total_reward"]',
                 "NEXT_PUBLIC_VIEWS_TX_HIDDEN_FIELDS": '["burnt_fees","gas_fees"]',

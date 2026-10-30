@@ -1,0 +1,26 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-frontend-default-origin-ports",
+  "type": "fixed",
+  "scopes": [
+    "deployment",
+    "explorer",
+    "documentation",
+    "testing"
+  ],
+  "summary": "修复省略公网端口的 HTTP/HTTPS 地址导致网页前端无法启动的问题",
+  "details": [
+    "Visitor URL 未显式指定端口时，为前端生成 HTTP 80 或 HTTPS 443，避免 NEXT_PUBLIC_APP_PORT 与 NEXT_PUBLIC_API_PORT 的空字符串触发启动校验失败和网页 502。显式公网端口继续按原值传递，不误用本机监听端口。",
+    "现有 RPC/API check 不验证网页前端，文档明确需要独立验证 /usdb 页面及前端容器状态。"
+  ],
+  "operator_actions": [
+    "安装包含修复的版本后执行 down、prepare --replace、preflight、up、check，并验证 /usdb 页面；无需清理数据卷或重置网络。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": true
+  },
+  "references": []
+}

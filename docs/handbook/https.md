@@ -192,7 +192,10 @@ usdb-explorer check
 | 域名不匹配 | 使用实际证书覆盖的域名访问，检查加载的证书；不能用公网或内网 IP 替代域名 |
 | 证书过期或不受信任 | 核对有效期、客户端系统时间、CA 信任和完整中间证书链 |
 | `up` 或 `reload-proxy` 的 Nginx 检查失败 | 检查证书文件名、PEM 格式、权限和证书/私钥是否匹配；用 `usdb-explorer logs` 查看已有容器日志 |
+| 前端反复重启，日志提示 `NEXT_PUBLIC_APP_PORT` / `NEXT_PUBLIC_API_PORT` 为 `NaN` | 旧版封装会为省略端口的 Visitor URL 生成空端口；安装修复版后重新 `down`、`prepare --replace`、`preflight`、`up`、`check`。临时可在 setup 中将 URL 明确写为 `https://域名:443`（HTTP 为 `:80`），再执行同样流程；保留实际公网端口和数据卷 |
 | 仍请求旧 HTTP API，或钱包显示旧 RPC | 核对 Visitor URL，执行完整的 prepare 替换流程并强制刷新；更新钱包已有网络设置 |
+
+`check` 当前检查 RPC 和索引 API，不检查网页前端；即使检查通过，也需打开 `/usdb` 页面确认没有 502，并检查前端容器是否持续运行。
 
 若要回退到原 HTTP 入口，使用 setup 将 Visitor URL 改回原 HTTP URL，保留 HTTP 28080，
 再执行同样的 down、prepare --replace、preflight、up、check 流程，并恢复对应端口映射。

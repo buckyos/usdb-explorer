@@ -89,13 +89,40 @@ class PublicServicesTests(unittest.TestCase):
         frontend = doc["services"]["frontend"]["environment"]
         self.assertEqual(frontend["NEXT_PUBLIC_API_HOST"], "explorer.example.com")
         self.assertEqual(frontend["NEXT_PUBLIC_API_PROTOCOL"], "https")
-        self.assertEqual(frontend["NEXT_PUBLIC_API_PORT"], "")
+        self.assertEqual(frontend["NEXT_PUBLIC_API_PORT"], "443")
         self.assertEqual(doc["services"]["gateway"]["environment"]["BROADCAST_UPSTREAM"], "https://writer.internal/rpc")
         self.assertEqual(CONFIG.read_json(self.state / "network.json")["rpcUrls"], ["https://explorer.example.com/rpc"])
         routes = (self.state / "nginx.locations.conf").read_text()
         self.assertIn("127.0.0.1:28081", routes)
         self.assertIn("location /api/ { proxy_pass $usdb_gateway$request_uri; }", routes)
         self.assertNotIn("backend:4000", routes)
+
+    def test_frontend_receives_numeric_visitor_ports_for_standard_and_forwarded_origins(self):
+        certificates = self.root / "certificates"
+        certificates.mkdir()
+        for name in ("fullchain.pem", "privkey.pem"):
+            (certificates / name).write_text("fixture certificate")
+        cases = [("http://explorer.example.com", "80"),
+                 ("https://explorer.example.com", "443"),
+                 ("http://explorer.example.com:80", "80"),
+                 ("https://explorer.example.com:443", "443"),
+                 ("http://explorer.example.com:38080", "38080"),
+                 ("https://explorer.example.com:38443", "38443")]
+        for mode in ("external", "bundled"):
+            for index, (origin, port) in enumerate(cases):
+                with self.subTest(mode=mode, origin=origin):
+                    self.state = self.root / f"{mode}-{index}"
+                    self.config["ingress"] = {"mode": mode, "explorer_url": origin,
+                                              "http_port": 28080, "https_port": 28443}
+                    if mode == "bundled" and origin.startswith("https:"):
+                        self.config["ingress"]["tls"] = {"certificate_dir": str(certificates)}
+                    doc = self.prepare()
+                    frontend = doc["services"]["frontend"]["environment"]
+                    # Blockscout rejects empty numeric environment variables at startup.
+                    self.assertEqual(frontend["NEXT_PUBLIC_API_PORT"], port)
+                    self.assertEqual(frontend["NEXT_PUBLIC_APP_PORT"], port)
+                    self.assertEqual(frontend["NEXT_PUBLIC_NETWORK_RPC_URL"], origin + "/rpc")
+                    self.assertEqual(CONFIG.read_json(self.state / "network.json")["rpcUrls"], [origin + "/rpc"])
 
     def test_bundled_tls_mount_and_certificate_rotation(self):
         certificates = self.root / "certificates"
