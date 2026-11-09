@@ -9,6 +9,7 @@
 | preflight 只有 JSON，看不出是否成功 | [预检结果](#预检结果与等待交易) |
 | preflight 成功，check 超时 | [检查访问链路](#preflight-成功但-check-超时) |
 | 外网页面正常，但服务器 check 仍超时 | [公网地址回访](#外网正常但服务器上的-check-超时) |
+| 节点 RPC 正常，公开 RPC 503，rpc-host 反复重启 | [残留 RPC socket](#rpc-host-因残留-socket-反复重启) |
 | HTML 打开，但数据请求失败 | [页面和 API 地址](#页面打开但数据不显示) |
 | 控制台反复出现 `/socket/v2/websocket` 连接失败 | [WebSocket 与缓存](#websocket-与页面缓存) |
 | 域名 IPv4 正常、IPv6 失败 | [双栈入口](networking.md#ipv4-与-ipv6-双栈入口) |
@@ -135,6 +136,37 @@ tracing 或索引速度。单次成功也不能排除间歇性故障。若连接
 安装包含后续改进的版本后，可以显式执行 `check --url http://127.0.0.1:28080` 检查 HTTP bundled
 本机入口。此命令只读，不修改前端配置，也不等于公布入口检查通过；工具不会自动回退后报告成功。
 HTTPS 模式改用正确域名和证书的入口，不能以 loopback HTTP 跳转或跳过 TLS 校验代替验证。
+
+## rpc-host 因残留 socket 反复重启
+
+如果节点 loopback RPC 和 `preflight` 正常，但公开 `/rpc` 返回 503、gateway 报
+`upstream network identity unavailable`，检查 `rpc-host` 和 `rpc-relay` 日志。
+`bind() to unix:/run/usdb-rpc/upstream.sock failed (98: Address in use)` 配合 relay 的
+`Connection refused`，可能表示异常退出后共享卷留下了无人监听的 socket；这条网关错误
+本身不能证明 chain ID 或创世哈希不匹配。旧版的文件存在检查、relay 固定返回 200 均可能误判。
+
+修复版在 Nginx 的整个运行期间持有该卷的独占锁。启动时只清理确认连接失败的残留 socket；
+已有持锁实例、仍有 HTTP 响应或连接超时的 socket，以及普通文件或符号链接都会被拒绝替换。
+`rpc-host` 健康检查通过 Unix socket 请求内部 HTTP 端点，`rpc-relay` 健康检查也经过该 socket。
+这些检查证明转发进程可用；节点身份、RPC 能力及索引一致性仍由 `preflight`、`up` 和 `check` 核验。
+
+安装包含修复的版本后，保留原配置、deployment ID、数据库和数据卷，执行：
+
+```bash
+usdb-explorer down
+usdb-explorer prepare --replace
+usdb-explorer preflight
+usdb-explorer up
+usdb-explorer check
+```
+
+仅升级 CLI 或重启旧容器不会替换已生成的启动配置。上述流程只操作 Explorer，不重启节点，
+也不需要删除卷或清空索引。不要在旧转发进程仍运行时手动删除 socket 或 `owner.lock`。
+
+恢复后观察公开 RPC、backend 的索引进度，以及此前停滞高度的 API 区块哈希是否与节点一致。
+API 的 HTTP 200 可能来自旧数据库记录；如果尾块已不属于节点当前主链，必须继续核验该高度的
+重索引，不能只凭页面打开或容器 healthy 宣称恢复，也不能假定本次 socket 修复已纠正所有旧记录。
+内部调用解析失败则另查下面的追踪兼容问题。
 
 ## 内部调用索引报 extract_transactions_params 错误
 

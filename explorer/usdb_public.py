@@ -220,6 +220,7 @@ def prepare(config_path, root, *, replace=False, credentials_file=None, kit=KIT)
         for name, external in (("nginx.conf", False), ("nginx.locations.conf", True)):
             (staging / name).write_text(nginx_config(config, external=external, proxy_token=faucet_token(credentials)))
         if config["rpc"]["mode"] == "local-node":
+            shutil.copyfile(kit / "assets/start-rpc-host.sh", staging / "start-rpc-host.sh")
             for name, host in (("rpc-host.conf", True), ("rpc-relay.conf", False)):
                 (staging / name).write_text(local_rpc_config(config, host=host))
         if "gateway" not in lock["images"]:

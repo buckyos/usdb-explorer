@@ -231,12 +231,16 @@ def local_rpc_config(config, *, host):
         routes.append(f"    location = /{route} {{\n"
                       f"        if ($request_method != POST) {{ return 405; }}\n"
                       f"        {header}\n        proxy_pass {upstream};\n    }}\n")
+    health = ("    location = /healthz { return 200 'host relay ready'; }\n" if host else
+              "    location = /healthz {\n"
+              "        proxy_connect_timeout 1s;\n        proxy_read_timeout 1s;\n"
+              "        proxy_pass http://unix:/run/usdb-rpc/upstream.sock:/healthz;\n    }\n")
     return ("worker_processes 1;\npid /tmp/nginx.pid;\nerror_log /dev/stderr warn;\n"
             "events { worker_connections 256; }\nhttp {\n    access_log off;\n    server_tokens off;\n"
             "    client_max_body_size 10m;\n    proxy_connect_timeout 5s;\n    proxy_read_timeout 120s;\n"
             "    proxy_send_timeout 120s;\n    proxy_http_version 1.1;\n    proxy_buffering off;\n"
             f"    server {{\n    listen {listen};\n"
-            + ("" if host else "    location = /healthz { return 200 'relay ready'; }\n")
+            + health
             + "".join(routes) + "    location / { return 404; }\n    }\n}\n")
 
 
@@ -447,10 +451,15 @@ def compose_document(config, identity, lock, root):
                 volumes=[f"{root}/{name}.conf:/etc/nginx/nginx.conf:ro",
                          "rpc-socket:/run/usdb-rpc" + (":ro" if name == "rpc-relay" else "")])
         services["rpc-host"]["network_mode"] = "host"
-        services["rpc-host"]["healthcheck"] = {"test": ["CMD", "test", "-S", "/run/usdb-rpc/upstream.sock"],
-                                              "interval": "2s", "timeout": "2s", "retries": 15}
+        services["rpc-host"]["entrypoint"] = ["sh", "/etc/usdb-rpc/start-host.sh"]
+        services["rpc-host"]["volumes"].append(f"{root}/start-rpc-host.sh:/etc/usdb-rpc/start-host.sh:ro")
+        # Probe the listener itself: a stale pathname survives crashes and must not pass readiness.
+        services["rpc-host"]["healthcheck"] = {
+            "test": ["CMD", "curl", "--noproxy", "*", "--fail", "--silent", "--show-error", "--max-time", "1",
+                     "--unix-socket", "/run/usdb-rpc/upstream.sock", "http://localhost/healthz"],
+            "interval": "2s", "timeout": "2s", "retries": 15}
         services["rpc-relay"].update(networks=["rpc"], depends_on={"rpc-host": {"condition": "service_healthy"}},
-            healthcheck={"test": ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"],
+            healthcheck={"test": ["CMD", "wget", "-q", "-O", "/dev/null", "-T", "1", "http://127.0.0.1:8080/healthz"],
                          "interval": "2s", "timeout": "2s", "retries": 15})
         for name in ("backend", "gateway", *(("faucet",) if "faucet" in services else ())):
             services[name]["networks"].append("rpc")

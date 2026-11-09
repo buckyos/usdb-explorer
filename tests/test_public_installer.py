@@ -100,6 +100,8 @@ class PublicInstallerTests(unittest.TestCase):
         self.assertEqual(document["services"]["proxy"]["ports"], ["0.0.0.0:28080:8080"])
         self.assertNotIn("build", document["services"]["gateway"])
         self.assertTrue((state / "rpc-host.conf").is_file())
+        self.assertEqual((state / "start-rpc-host.sh").read_bytes(),
+                         (ROOT / "explorer/assets/start-rpc-host.sh").read_bytes())
 
     def test_installed_setup_runs_in_a_terminal_and_saves_reviewed_defaults(self):
         result = self.run_installer()

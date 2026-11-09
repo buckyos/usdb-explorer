@@ -27,60 +27,152 @@ from common.public_services import PublicRpcFixture, rpc_server
 
 
 class LocalRpcContainers(unittest.TestCase):
-    def test_host_loopback_vhosts_and_separate_routes_from_an_isolated_container(self):
-        with tempfile.TemporaryDirectory(prefix="explorer-local-rpc-") as temporary, ExitStack() as stack:
-            root = Path(temporary)
-            config = read_json(ROOT / "explorer/config.example.json")
-            config["deployment_id"] = "explorer-local-test-" + uuid.uuid4().hex[:10]
-            identity = read_json(ROOT / "explorer/networks/usdb-testnet-v1.json")
-            fixtures, requests = {}, {}
-            for route in ("read", "trace", "broadcast"):
-                fixtures[route] = PublicRpcFixture(identity)
-                requests[route] = []
-                url = stack.enter_context(rpc_server(fixtures[route], request_observer=lambda path, headers, r=route:
-                                                      requests[r].append((path, headers["Host"]))))
-                config["rpc"][route + "_url"] = url + "/node-rpc"
-            config["rpc"].update(transaction=fixtures["read"].transaction, historical_block=10)
-            path = root / "operator.json"
-            path.write_text(json.dumps(config))
-            state = root / "deployment"
-            PUBLIC.prepare(path, state)
-            config = read_json(state / "config.json")
-            report = CHECK.preflight(config, identity)
-            image = image_lock(ROOT / "explorer")["images"]["nginx"]["reference"]
-            if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode:
-                IngressContainers.docker("pull", image)
-            # Only this random test project is removed; no real node or deployment is operated.
-            stack.callback(PUBLIC.compose, state, ["down", "--volumes"], capture=True, timeout=60)
-            PUBLIC.compose(state, ["up", "-d", "--wait", "--wait-timeout", "40", "rpc-host", "rpc-relay"], capture=True, timeout=60)
-            PUBLIC.check_local_relay(state, config, identity, report)
-            for route in fixtures:
-                fixtures[route].calls.clear()
-                requests[route].clear()
-            network = config["deployment_id"] + "_rpc"
+    def setUp(self):
+        self.stack = ExitStack()
+        self.addCleanup(self.stack.close)
+        root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(prefix="explorer-local-rpc-")))
+        self.config = read_json(ROOT / "explorer/config.example.json")
+        self.config["deployment_id"] = "explorer-local-test-" + uuid.uuid4().hex[:10]
+        self.identity = read_json(ROOT / "explorer/networks/usdb-testnet-v1.json")
+        self.fixtures, self.requests = {}, {}
+        for route in ("read", "trace", "broadcast"):
+            self.fixtures[route] = PublicRpcFixture(self.identity)
+            self.requests[route] = []
+            url = self.stack.enter_context(rpc_server(self.fixtures[route], request_observer=lambda path, headers, r=route:
+                                                     self.requests[r].append((path, headers["Host"]))))
+            self.config["rpc"][route + "_url"] = url + "/node-rpc"
+        self.config["rpc"].update(transaction=self.fixtures["read"].transaction, historical_block=10)
+        path = root / "operator.json"
+        path.write_text(json.dumps(self.config))
+        self.state = root / "deployment"
+        PUBLIC.prepare(path, self.state)
+        self.config = read_json(self.state / "config.json")
+        self.image = image_lock(ROOT / "explorer")["images"]["nginx"]["reference"]
+        if subprocess.run(["docker", "image", "inspect", self.image], capture_output=True).returncode:
+            IngressContainers.docker("pull", self.image)
+        # Only this random test project is removed; no real node or deployment is operated.
+        self.stack.callback(PUBLIC.compose, self.state, ["down", "--volumes"], capture=True, timeout=60)
+        PUBLIC.compose(self.state, ["up", "-d", "--wait", "--wait-timeout", "40", "rpc-host", "rpc-relay"],
+                       capture=True, timeout=60)
 
-            def probe(route, method="eth_chainId"):
-                return IngressContainers.docker("run", "--rm", "--network", network, "--memory", "64m", "--cpus", "0.25",
-                    "--entrypoint", "wget", image, "-q", "-O", "-", "-T", "3", "--header=Content-Type:application/json",
-                    "--post-data=" + json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": []}),
-                    "http://rpc-relay:8080/" + route)
+    def container(self, service):
+        return self.config["deployment_id"] + "-" + service + "-1"
 
-            for route, fixture in fixtures.items():
-                self.assertEqual(json.loads(probe(route))["result"], hex(identity["chain_id"]))
-                self.assertEqual(fixture.calls, [("eth_chainId", [])])
-                self.assertEqual(requests[route], [("/node-rpc", config["rpc"][route + "_url"].split("/")[2])])
-            with self.assertRaises(subprocess.CalledProcessError):
-                probe("unconfigured-route")
-            # Restart the socket owner to exercise stale socket cleanup and relay recovery.
-            PUBLIC.compose(state, ["restart", "rpc-host"], capture=True, timeout=30)
-            for attempt in range(20):
+    def probe(self, route):
+        return IngressContainers.docker("run", "--rm", "--network", self.config["deployment_id"] + "_rpc",
+            "--memory", "64m", "--cpus", "0.25", "--entrypoint", "wget", self.image, "-q", "-O", "-", "-T", "3",
+            "--header=Content-Type:application/json",
+            '--post-data={"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}',
+            "http://rpc-relay:8080/" + route)
+
+    def healthcheck(self, service, *, stopped=False):
+        name = self.container(service)
+        command = json.loads(IngressContainers.docker("inspect", name))[0]["Config"]["Healthcheck"]["Test"]
+        self.assertEqual(command[0], "CMD")
+        # A helper probes the stopped owner's socket using the exact generated health command.
+        arguments = (["run", "--rm", "--network", "none", "--volumes-from", name + ":ro",
+                      "--entrypoint", command[1], self.image, *command[2:]] if stopped else
+                     ["exec", name, *command[1:]])
+        return subprocess.run(["docker", *arguments], capture_output=True, text=True, timeout=10)
+
+    def wait_for_rpc(self, *, restarted_after=None):
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            state = json.loads(IngressContainers.docker("inspect", self.container("rpc-host")))[0]
+            if restarted_after is None or state["RestartCount"] > restarted_after:
                 try:
-                    self.assertEqual(json.loads(probe("read"))["result"], hex(identity["chain_id"]))
-                    break
+                    self.assertEqual(json.loads(self.probe("read"))["result"], hex(self.identity["chain_id"]))
+                    return
                 except subprocess.CalledProcessError:
-                    if attempt == 19:
-                        raise
-                    time.sleep(.1)
+                    pass
+            time.sleep(.2)
+        logs = PUBLIC.docker(["logs", "--tail", "10", self.container("rpc-host")])
+        self.fail("RPC socket owner did not recover: " + str(state["State"]) + logs.stdout + logs.stderr)
+
+    def test_killed_owner_leaves_unhealthy_socket_and_recovers_after_start(self):
+        host, relay = self.container("rpc-host"), self.container("rpc-relay")
+        IngressContainers.docker("kill", "--signal", "KILL", host)
+        # A pathname alone is not evidence that its server survived an abrupt exit.
+        IngressContainers.docker("exec", relay, "test", "-S", "/run/usdb-rpc/upstream.sock")
+        self.assertNotEqual(self.healthcheck("rpc-host", stopped=True).returncode, 0)
+        self.assertNotEqual(self.healthcheck("rpc-relay").returncode, 0)
+        IngressContainers.docker("start", host)
+        self.wait_for_rpc()
+        for route in self.fixtures:
+            self.assertEqual(json.loads(self.probe(route))["result"], hex(self.identity["chain_id"]))
+        for service in ("rpc-host", "rpc-relay"):
+            self.assertEqual(self.healthcheck(service).returncode, 0)
+
+    def test_process_crash_recovers_with_docker_restart_policy(self):
+        host = self.container("rpc-host")
+        for _ in range(2):
+            info = json.loads(IngressContainers.docker("inspect", host))[0]
+            self.assertEqual(info["Name"], "/" + host)
+            pid = info["State"]["Pid"]
+            self.assertGreater(pid, 1)
+            # Signal only this random test container's init from the ancestor PID namespace.
+            # docker kill suppresses restart, and PID 1 ignores unhandled in-namespace signals.
+            IngressContainers.docker("run", "--rm", "--network", "none", "--pid", "host",
+                "--cap-drop", "ALL", "--cap-add", "KILL", "--entrypoint", "kill", self.image, "-KILL", str(pid))
+            self.wait_for_rpc(restarted_after=info["RestartCount"])
+
+    def test_duplicate_owner_cannot_unlink_active_socket(self):
+        with self.assertRaises(subprocess.CalledProcessError) as failed:
+            PUBLIC.compose(self.state, ["run", "--rm", "--no-deps", "-T", "rpc-host"], capture=True, timeout=15)
+        self.assertIn("RPC socket is already owned", failed.exception.stderr)
+        self.assertEqual(json.loads(self.probe("read"))["result"], hex(self.identity["chain_id"]))
+
+    def test_legacy_owner_without_lock_cannot_be_replaced_while_live(self):
+        host = self.container("rpc-host")
+        IngressContainers.docker("stop", host)
+        legacy = self.config["deployment_id"] + "-legacy-host"
+        self.stack.callback(IngressContainers.docker, "rm", "-f", legacy)
+        # An older release has neither the lock nor the host health endpoint (HTTP 404).
+        configuration = self.state / "legacy-rpc-host.conf"
+        configuration.write_text((self.state / "rpc-host.conf").read_text().replace(
+            "    location = /healthz { return 200 'host relay ready'; }\n", ""))
+        PUBLIC.compose(self.state, ["run", "--rm", "-d", "--no-deps", "--name", legacy,
+                                   "-v", str(configuration) + ":/etc/nginx/nginx.conf:ro",
+                                   "--entrypoint", "nginx", "rpc-host", "-g", "daemon off;"], capture=True, timeout=15)
+        self.wait_for_rpc()
+        with self.assertRaises(subprocess.CalledProcessError) as failed:
+            PUBLIC.compose(self.state, ["run", "--rm", "--no-deps", "-T", "rpc-host"], capture=True, timeout=15)
+        self.assertIn("RPC socket may still be active", failed.exception.stderr)
+        self.assertEqual(json.loads(self.probe("read"))["result"], hex(self.identity["chain_id"]))
+
+    def test_cleanup_preserves_unexpected_files_and_symlinks(self):
+        host = self.container("rpc-host")
+        IngressContainers.docker("stop", host)
+
+        def volume_command(command):
+            return IngressContainers.docker("run", "--rm", "--network", "none", "--volumes-from", host,
+                                           "--entrypoint", "sh", self.image, "-c", command)
+
+        volume_command("printf retained > /run/usdb-rpc/retained")
+        for create in ("cp retained upstream.sock", "ln -s retained upstream.sock"):
+            with self.subTest(create=create):
+                volume_command("cd /run/usdb-rpc && " + create)
+                with self.assertRaises(subprocess.CalledProcessError) as failed:
+                    PUBLIC.compose(self.state, ["run", "--rm", "--no-deps", "-T", "rpc-host"], capture=True, timeout=15)
+                self.assertIn("RPC socket path is not a socket", failed.exception.stderr)
+                self.assertEqual(volume_command("cat /run/usdb-rpc/upstream.sock"), "retained")
+                self.assertEqual(volume_command("cat /run/usdb-rpc/retained"), "retained")
+                volume_command("rm /run/usdb-rpc/upstream.sock")
+
+    def test_host_loopback_vhosts_and_separate_routes_from_an_isolated_container(self):
+        report = CHECK.preflight(self.config, self.identity)
+        PUBLIC.check_local_relay(self.state, self.config, self.identity, report)
+        for route, fixture in self.fixtures.items():
+            fixture.calls.clear()
+            self.requests[route].clear()
+            self.assertEqual(json.loads(self.probe(route))["result"], hex(self.identity["chain_id"]))
+            self.assertEqual(fixture.calls, [("eth_chainId", [])])
+            self.assertEqual(self.requests[route], [("/node-rpc", self.config["rpc"][route + "_url"].split("/")[2])])
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.probe("unconfigured-route")
+        # Keep graceful restart coverage separate from the abrupt-exit regressions.
+        PUBLIC.compose(self.state, ["restart", "rpc-host"], capture=True, timeout=30)
+        self.wait_for_rpc()
 
 
 class IngressContainers(unittest.TestCase):

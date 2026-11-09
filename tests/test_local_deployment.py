@@ -65,6 +65,13 @@ class LocalDeploymentTests(unittest.TestCase):
         self.assertIn("proxy_pass http://127.0.0.1:8545/;", host)
         PUBLIC.verify(self.state)
 
+    def test_socket_startup_script_is_covered_by_prepared_integrity_checks(self):
+        self.prepare()
+        script = self.state / "start-rpc-host.sh"
+        script.write_text(script.read_text() + "\n# changed after prepare\n")
+        with self.assertRaisesRegex(ValueError, "deployment file changed or missing: start-rpc-host.sh"):
+            PUBLIC.verify(self.state)
+
     def test_forwarded_http_port_updates_every_advertised_origin(self):
         config = self.configure("--explorer-url", "http://192.0.2.10:38080", "--http-port", "28080")
         self.assertEqual(config["ingress"]["bind_address"], "0.0.0.0")

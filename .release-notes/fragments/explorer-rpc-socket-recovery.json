@@ -1,0 +1,28 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-rpc-socket-recovery",
+  "type": "fixed",
+  "scopes": [
+    "deployment",
+    "explorer",
+    "testing",
+    "documentation"
+  ],
+  "summary": "修复本机 RPC 转发容器异常退出后因残留 Unix socket 无法恢复的问题",
+  "details": [
+    "rpc-host 启动脚本在 Nginx 运行期间持有独占锁，仅在 socket 连接失败时清理残留端点；拒绝覆盖其他活跃实例、超时端点或非 socket 路径。保持原有私有 socket 卷和端口隔离。",
+    "将 rpc-host 的文件存在检查和 rpc-relay 的固定成功响应替换为实际经过 Unix socket 的 HTTP 存活检查。节点 RPC 身份及索引一致性继续由既有预检和验收检查负责。",
+    "启动脚本随独立发布包分发，并纳入 prepare 生成文件的摘要校验；真实固定镜像回归覆盖强制退出、Docker 自动重启、正常重启及新旧重复实例保护。"
+  ],
+  "operator_actions": [
+    "升级后执行 down、prepare --replace、preflight、up、check，保留原配置、数据库和数据卷；仅重启旧容器不会应用修复。",
+    "转发恢复后确认索引继续推进，并核验此前停滞高度的 API 区块哈希与节点当前主链一致；HTTP 200 或容器 healthy 不代表旧索引已经纠正。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": true
+  },
+  "references": []
+}
