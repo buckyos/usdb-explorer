@@ -53,6 +53,23 @@ usdb-explorer --help
 
 源配置变更后必须重新 prepare 才会进入部署。不要直接改部署目录中有摘要保护的 JSON 或 Nginx 文件。
 
+包含状态提示的新安装器会读取选定目录的部署元数据，在安装末尾给出对应的后续命令：
+
+| 本地状态 | 安装后提示 |
+| --- | --- |
+| 新配置，或已有配置但选定目录尚未 prepare | `setup` → `prepare` → `preflight` → `up` → `check` |
+| 已 prepare 的版本不同于刚安装的工具版本 | `down` → `prepare --replace` → `preflight` → `up` → `check`，无需为升级重新 setup |
+| 同版本已 prepare，重复安装工具 | 先 `status`、`check`；若另外修改了配置，仍需执行替换流程 |
+| 部署记录缺失、损坏、目录不匹配，或原源配置丢失 | 提示检查目录和原配置，先运行只读 `status`，不按全新部署给出初始化命令 |
+
+安装工具的版本与已 prepare 的版本分别判断；重复运行同一个新安装脚本，也不能代替尚未执行的
+`prepare --replace`。安装器不查询 Docker，不据此宣称容器已更新或服务健康。
+
+自定义部署在安装命令后追加 `--config-file /实际配置/config.json --state-dir /实际部署目录`。
+`--state-dir` 只用于识别后续操作，不创建或更改部署；所有输出命令会带上选定路径并处理 shell 引号。
+默认仍为 `~/.config/usdb-public/default`，不会根据 `--config-file` 的父目录猜测，也不会扫描其他部署。
+此参数和提示随包含改动的新安装脚本发布，不会改写已有版本的安装附件。
+
 ## 3. 选择访问地址与 Nginx 模式
 
 推荐使用交互式向导，首次安装和后续改配置均可运行：

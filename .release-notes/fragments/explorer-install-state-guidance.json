@@ -1,0 +1,28 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-install-state-guidance",
+  "type": "added",
+  "scopes": [
+    "deployment",
+    "release",
+    "documentation",
+    "testing"
+  ],
+  "summary": "安装完成后根据实际部署状态提示初次配置、升级替换或同版本重装的后续操作",
+  "details": [
+    "分别报告工具安装方式和选定目录的已 prepare 版本；已有旧版本部署直接输出 down、prepare --replace、preflight、up、check，重复安装但未应用的升级仍保留这组提示。",
+    "新配置或尚未 prepare 的目录提示 setup 和首次 prepare；同版本已 prepare 时提示 status 和 check，不把元数据等同于正在运行的服务已更新。",
+    "安装脚本新增 --state-dir，用于只读识别部署并生成带实际路径和 shell 引号的命令；默认状态目录保持不变，不从配置路径猜测或扫描其他部署。",
+    "元数据不完整、损坏、身份不符或原源配置丢失时保留安装结果并提示检查，不输出初始化或替换操作；不调用 Docker，不更改已有配置或部署文件。"
+  ],
+  "operator_actions": [
+    "使用自定义目录时，在包含本改动的新安装命令后传入原有 --config-file 与 --state-dir，并按安装末尾的对应提示操作。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": false
+  },
+  "references": []
+}

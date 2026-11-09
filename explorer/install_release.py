@@ -12,6 +12,7 @@ import re
 import secrets
 import shlex
 import shutil
+import stat
 import sys
 import tarfile
 import tempfile
@@ -86,7 +87,89 @@ def temporary_link(target, path):
     return temporary
 
 
-def install(archive, release_id, expected_sha256, install_root, bin_dir, config_file):
+def guidance_metadata(path):
+    """Read bounded local JSON for advice without exposing private values or parser errors."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as source:
+        if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+            raise ValueError("unsupported metadata file")
+        data = source.read(1024 * 1024 + 1)
+    if len(data) > 1024 * 1024:
+        raise ValueError("metadata exceeds guidance limit")
+    value = json.loads(data)
+    if not isinstance(value, dict):
+        raise ValueError("metadata must be an object")
+    return value
+
+
+def installation_guidance(launcher, config_file, state_dir, destination, *, created_config):
+    """Choose post-install commands from local metadata only; never inspect or operate Docker."""
+    def command(action, *, replace=False):
+        args = [str(launcher), action]
+        if replace:
+            args.append("--replace")
+        if action in {"setup", "prepare"}:
+            args += ["--config", str(config_file)]
+        return "  " + shlex.join([*args, "--state-dir", str(state_dir)])
+
+    lines = [f"Deployment directory: {state_dir}",
+             "Running services: not checked; installing the tool does not apply a deployment."]
+    try:
+        try:
+            state_dir.lstat()
+        except FileNotFoundError:
+            label = "new configuration" if created_config else "existing configuration; not prepared here"
+            lines += [f"Deployment: {label}", "Next steps (not executed):"]
+            if (destination / "public_setup.py").is_file():
+                lines += [command("setup")]
+            else:
+                lines += ["Review the upstream RPC and ingress settings in the configuration first."]
+            lines += [command(action) for action in ("prepare", "preflight", "up", "check")]
+            lines += ["If your deployment is elsewhere, rerun this installer with --state-dir pointing to it."]
+            return lines
+        if created_config:
+            raise ValueError("source configuration was missing for an existing deployment")
+        saved = guidance_metadata(state_dir / "deployment.json")
+        required = {"compose.json", "config.json", "identity.json", "credentials.json", "network.json", "images.lock.json"}
+        files = saved.get("files")
+        if (saved.get("schema_version") != "usdb-public-deployment:v1" or saved.get("state_dir") != str(state_dir)
+                or not isinstance(files, dict) or not required.issubset(files)
+                or any(not (state_dir / name).is_file() for name in required)):
+            raise ValueError("unrecognized prepared deployment")
+        prepared = guidance_metadata(state_dir / "config.json")
+        source = guidance_metadata(config_file)
+        target = guidance_metadata(destination / "release.json")
+        if (source.get("schema_version") != "usdb-public-config:v1"
+                or prepared.get("schema_version") != "usdb-public-config:v1"
+                or any(not isinstance(source.get(key), str) or not source[key]
+                       or source[key] != prepared.get(key) for key in ("deployment_id", "network"))
+                or "networks/" + source["network"] + ".json" not in target["files"]):
+            raise ValueError("configuration and deployment identity require review")
+        version = saved.get("release_version")
+        if not isinstance(version, str) or not re.fullmatch(r"development|[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.]+)?", version):
+            raise ValueError("unknown prepared release")
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        # Installation succeeded; missing/ambiguous advice must not turn it into an install failure.
+        lines += ["Deployment: existing state requires review before setup or replacement.",
+                  "Check the selected --state-dir, the original source configuration and deployment metadata; values were not printed.",
+                  "Inspect the selected deployment (not executed):", command("status")]
+        if created_config:
+            lines += ["The source configuration was missing; restore its original settings before applying this release."]
+        return lines
+    lines += [f"Prepared release: {version}"]
+    if version == target["version"]:
+        lines += ["Deployment: prepared release already matches the installed tool; service state is not inferred.",
+                  "Next steps (not executed):", command("status"), command("check"),
+                  "Changed settings still require down, prepare --replace, preflight, up and check with these same paths."]
+    else:
+        lines += ["Deployment: existing prepared deployment; apply the installed release without rerunning setup.",
+                  "Next steps (not executed):", command("down"), command("prepare", replace=True),
+                  *[command(action) for action in ("preflight", "up", "check")],
+                  "These commands retain deployment credentials and data volumes; down stops only Explorer."]
+    return lines
+
+
+def install(archive, release_id, expected_sha256, install_root, bin_dir, config_file, *, state_dir=None):
     """Install immutable version directories and atomically switch only the CLI pointer."""
     if RELEASE_ID.fullmatch(release_id) is None or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
         raise ValueError("invalid pinned installer identity")
@@ -94,7 +177,8 @@ def install(archive, release_id, expected_sha256, install_root, bin_dir, config_
         raise ValueError("release archive SHA-256 mismatch")
     install_root, bin_dir = install_root.expanduser().resolve(), bin_dir.expanduser().resolve()
     config_file = config_file.expanduser().absolute()
-    if any(c in str(path) for path in (install_root, bin_dir, config_file) for c in "\n\r"):
+    state_dir = (state_dir if state_dir is not None else Path.home() / ".config/usdb-public/default").expanduser().resolve()
+    if any(c in str(path) for path in (install_root, bin_dir, config_file, state_dir) for c in "\n\r"):
         raise ValueError("installation paths cannot contain newlines")
     if config_file.resolve().is_relative_to(install_root) or config_file in {bin_dir / "usdb-public", bin_dir / "usdb-explorer"}:
         raise ValueError("operator configuration must be outside release storage and the command entrypoint")
@@ -137,11 +221,13 @@ def install(archive, release_id, expected_sha256, install_root, bin_dir, config_
                 incoming.rename(destination)
         bin_dir.mkdir(parents=True, exist_ok=True)
         config_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        created_config = False
         try:
             fd = os.open(config_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
             pass  # Existing operator settings survive installs and upgrades byte-for-byte.
         else:
+            created_config = True
             with os.fdopen(fd, "wb") as output:
                 output.write((destination / "config.example.json").read_bytes())
         previous = os.readlink(current) if current.is_symlink() else None
@@ -179,17 +265,13 @@ def install(archive, release_id, expected_sha256, install_root, bin_dir, config_
     print(f"Command: {primary_launcher}")
     if add_explorer:
         print(f"Compatibility command: {launcher}")
-    print(f"Configuration (existing settings preserved): {config_file}")
+    mode = "first installation" if previous is None else ("reinstallation" if previous == "releases/" + release_id else "version change")
+    print(f"Tool installation: {mode}")
+    print(f"Configuration ({'created defaults' if created_config else 'existing settings preserved'}): {config_file}")
     if str(bin_dir) not in os.environ.get("PATH", "").split(os.pathsep):
         print("Add the command to this shell: export PATH=" + shlex.quote(str(bin_dir)) + ':"$PATH"')
-    if (destination / "public_setup.py").is_file():
-        print("Configure node connection, Nginx ingress and the optional faucet interactively:")
-        print("  " + shlex.quote(str(primary_launcher)) + " setup --config " + shlex.quote(str(config_file)))
-        print("Setup can be rerun to change settings; it prints the commands to prepare and start your deployment.")
-    else:
-        print("Edit the upstream RPC and ingress settings, then run:")
-        print("  " + shlex.quote(str(primary_launcher)) + " prepare --config " + shlex.quote(str(config_file)))
-        print("For an existing prepared deployment, use down, prepare --replace, then up.")
+    print("\n".join(installation_guidance(primary_launcher, config_file, state_dir, destination,
+                                           created_config=created_config)))
     print("Installation does not start or restart containers, or change node configuration.")
 
 
@@ -201,11 +283,14 @@ def main():
     parser.add_argument("--install-root", type=Path, default=Path.home() / ".local/share/usdb-public")
     parser.add_argument("--bin-dir", type=Path, default=Path.home() / ".local/bin")
     parser.add_argument("--config-file", type=Path, default=Path.home() / ".config/usdb-public/config.json")
+    parser.add_argument("--state-dir", type=Path, default=Path.home() / ".config/usdb-public/default",
+                        help="Deployment directory to inspect for post-install guidance; no deployment is changed")
     args = parser.parse_args()
     try:
         if sys.version_info < (3, 11) or platform.system() != "Linux" or platform.machine() not in {"x86_64", "amd64"}:
             raise ValueError("installer requires Linux amd64 and Python 3.11+")
-        install(args.archive, args.release_id, args.expected_sha256, args.install_root, args.bin_dir, args.config_file)
+        install(args.archive, args.release_id, args.expected_sha256, args.install_root, args.bin_dir, args.config_file,
+                state_dir=args.state_dir)
         return 0
     except (OSError, ValueError, tarfile.TarError, KeyError, TypeError) as error:
         print(f"USDB public installation failed: {error}", file=sys.stderr)

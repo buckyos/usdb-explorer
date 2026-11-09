@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -30,10 +31,12 @@ class PublicInstallerTests(unittest.TestCase):
         self.storage = self.root / "user files" / "install"
         self.commands = self.root / "user files" / "bin"
         self.config = self.root / "private" / "config.json"
+        self.home = self.root / "home"
+        self.state = self.home / ".config/usdb-public/default"
         self.stub_bin = self.root / "stub-bin"
         self.stub_bin.mkdir()
         fake_release_curl(self.stub_bin / "curl", self.assets)
-        self.env = {**os.environ, "PATH": str(self.stub_bin) + os.pathsep + os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1"}
+        self.env = {**os.environ, "HOME": str(self.home), "PATH": str(self.stub_bin) + os.pathsep + os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1"}
         self.archive = self.make_release("0.1.0")
 
     def make_release(self, version):
@@ -63,6 +66,11 @@ class PublicInstallerTests(unittest.TestCase):
         self.assertEqual(command.returncode, 0, command.stderr)
         self.assertIn("~/.config/usdb-public/config.json", "".join(command.stdout.split()))
         self.assertFalse((self.root / "node.env").exists())
+        self.assertIn("Tool installation: first installation", result.stdout)
+        commands = self.next_commands(result.stdout)
+        self.assertEqual([c[1] for c in commands], ["setup", "prepare", "preflight", "up", "check"])
+        self.assertNotIn("--replace", commands[1])
+        self.assertFalse(self.state.exists())
 
     def test_installed_version_commands_use_the_selected_release_after_upgrade(self):
         self.assertEqual(self.run_installer().returncode, 0)
@@ -156,6 +164,124 @@ class PublicInstallerTests(unittest.TestCase):
         self.assertEqual(self.config.read_text(), '{"operator_settings":"keep exactly"}\n')
         self.assertEqual(state.read_text(), "saved deployment credential fixture")
         self.assertTrue((self.storage / "releases/usdb-explorer-v0.1.0").is_dir())
+
+    def prepare_state(self, state=None):
+        state = state or self.state
+        result = subprocess.run([str(self.commands / "usdb-explorer"), "prepare", "--config", str(self.config),
+                                 "--state-dir", str(state)], env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return {str(p.relative_to(state)): p.read_bytes() for p in state.rglob("*") if p.is_file()}
+
+    def next_commands(self, output):
+        prefix = "  " + shlex.quote(str(self.commands / "usdb-explorer")) + " "
+        return [shlex.split(line.strip()) for line in output.splitlines() if line.startswith(prefix)]
+
+    def test_upgrade_of_prepared_deployment_prints_replacement_steps_without_mutation(self):
+        self.assertEqual(self.run_installer().returncode, 0)
+        before = self.prepare_state()
+        source = self.config.read_bytes()
+        self.make_release("0.2.0")
+        for _ in range(2):
+            result = self.run_installer("0.2.0")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            commands = self.next_commands(result.stdout)
+            self.assertEqual([c[1] for c in commands], ["down", "prepare", "preflight", "up", "check"])
+            self.assertIn("--replace", commands[1])
+            self.assertEqual(commands[1][commands[1].index("--config") + 1], str(self.config))
+            for command in commands:
+                self.assertEqual(command[command.index("--state-dir") + 1], str(self.state))
+            self.assertEqual(self.config.read_bytes(), source)
+            self.assertEqual({str(p.relative_to(self.state)): p.read_bytes()
+                              for p in self.state.rglob("*") if p.is_file()}, before)
+
+    def test_same_prepared_release_reinstall_recommends_inspection_without_replacement(self):
+        self.assertEqual(self.run_installer().returncode, 0)
+        before = self.prepare_state()
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Tool installation: reinstallation", result.stdout)
+        self.assertEqual([c[1] for c in self.next_commands(result.stdout)], ["status", "check"])
+        self.assertIn("service state is not inferred", result.stdout)
+        self.assertEqual({str(p.relative_to(self.state)): p.read_bytes()
+                          for p in self.state.rglob("*") if p.is_file()}, before)
+
+    def test_preserved_config_without_prepared_state_gets_initial_prepare(self):
+        self.config.parent.mkdir()
+        original = (ROOT / "explorer/config.example.json").read_bytes()
+        self.config.write_bytes(original)
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("existing configuration; not prepared here", result.stdout)
+        commands = self.next_commands(result.stdout)
+        self.assertEqual([c[1] for c in commands], ["setup", "prepare", "preflight", "up", "check"])
+        self.assertNotIn("--replace", commands[1])
+        self.assertEqual(self.config.read_bytes(), original)
+
+    def test_custom_state_directory_is_used_in_every_command_without_service_probes(self):
+        self.assertEqual(self.run_installer().returncode, 0)
+        selected = self.root / "deployment's state"
+        before = self.prepare_state(selected)
+        self.state.mkdir(parents=True)
+        (self.state / "deployment.json").write_text("unrelated-private-invalid-metadata")
+        self.make_release("0.2.0")
+        docker = self.stub_bin / "docker"
+        sentinel = self.root / "docker-was-called"
+        docker.write_text("#!/bin/sh\ntouch " + shlex.quote(str(sentinel)) + "\nexit 1\n")
+        docker.chmod(0o755)
+        result = self.run_installer("0.2.0", extra=("--state-dir", str(selected)), process_substitution=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = self.next_commands(result.stdout)
+        self.assertEqual([c[1] for c in commands], ["down", "prepare", "preflight", "up", "check"])
+        for command in commands:
+            self.assertEqual(command[command.index("--state-dir") + 1], str(selected))
+        self.assertFalse(sentinel.exists())
+        self.assertEqual({str(p.relative_to(selected)): p.read_bytes()
+                          for p in selected.rglob("*") if p.is_file()}, before)
+        self.assertEqual((self.state / "deployment.json").read_text(), "unrelated-private-invalid-metadata")
+        self.assertNotIn("unrelated-private", result.stdout + result.stderr)
+
+    def test_unknown_or_incomplete_state_is_not_treated_as_a_fresh_deployment(self):
+        self.assertEqual(self.run_installer().returncode, 0)
+        self.prepare_state()
+        metadata = self.state / "deployment.json"
+        for invalid in (None, "private-invalid-json", "[]", '{"schema_version":"unknown"}',
+                        " " * (1024 * 1024 + 1), "[" * 2000 + "]" * 2000):
+            with self.subTest(kind=type(invalid).__name__, length=len(invalid or "")):
+                if invalid is None:
+                    metadata.unlink()
+                else:
+                    metadata.write_text(invalid)
+                result = self.run_installer()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([c[1] for c in self.next_commands(result.stdout)], ["status"])
+                self.assertIn("existing state requires review", result.stdout)
+                self.assertNotIn("private-invalid", result.stdout + result.stderr)
+                self.assertNotIn("Traceback", result.stdout + result.stderr)
+                if invalid is not None:
+                    self.assertEqual(metadata.read_text(), invalid)
+
+    def test_missing_source_config_does_not_offer_to_replace_existing_deployment_with_defaults(self):
+        self.assertEqual(self.run_installer().returncode, 0)
+        before = self.prepare_state()
+        self.config.unlink()
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("source configuration was missing", result.stdout)
+        self.assertEqual([c[1] for c in self.next_commands(result.stdout)], ["status"])
+        self.assertEqual({str(p.relative_to(self.state)): p.read_bytes()
+                          for p in self.state.rglob("*") if p.is_file()}, before)
+
+    def test_source_identity_mismatch_requires_review_before_replacement(self):
+        self.assertEqual(self.run_installer().returncode, 0)
+        self.prepare_state()
+        config = json.loads(self.config.read_text())
+        config["deployment_id"] = "another-private-deployment"
+        self.config.write_text(json.dumps(config))
+        self.make_release("0.2.0")
+        result = self.run_installer("0.2.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c[1] for c in self.next_commands(result.stdout)], ["status"])
+        self.assertNotIn("another-private", result.stdout + result.stderr)
 
     def test_corrupt_download_cannot_switch_existing_release(self):
         self.assertEqual(self.run_installer().returncode, 0)
@@ -258,6 +384,7 @@ class PublicInstallerTests(unittest.TestCase):
         result = subprocess.run(["bash", str(script), "--help"], env=self.env, text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--install-root", result.stdout)
+        self.assertIn("--state-dir", result.stdout)
         digest = hashlib.sha256(script.read_bytes()).hexdigest()
         self.assertTrue(script.with_name(script.name + ".sha256").read_text().startswith(digest + "  "))
         self.assertIn("--proto-redir '=https'", script.read_text())

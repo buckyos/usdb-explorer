@@ -34,7 +34,7 @@
 
 ## 1. 安装与初始配置
 
-安装后或修改配置时，推荐运行 `usdb-explorer setup`：交互设置节点连接、内置/外部 Nginx、
+首次安装或修改配置时，推荐运行 `usdb-explorer setup`：交互设置节点连接、内置/外部 Nginx、
 访问 URL、HTTP/HTTPS 端口、已有证书目录及水龙头。保存前校验并展示摘要，已有配置会备份，
 最后打印应用配置的命令。完整流程见[交互式 setup](../docs/handbook/setup.md)。
 `configure`、`faucet configure` 和源 JSON 配置方式继续支持。
@@ -67,7 +67,11 @@ GitHub Release 同时保留安装包、脚本及各自 `.sha256`，便于离线�
 如果 `~/.local/bin` 尚未加入 PATH，按安装输出执行一次 `export PATH="$HOME/.local/bin:$PATH"`，
 或者直接调用 `~/.local/bin/usdb-explorer`。安装器不会自动改写 shell 启动文件。
 
-安装脚本支持 `--install-root`、`--bin-dir` 和 `--config-file`；默认路径满足普通单用户部署。
+安装脚本支持 `--install-root`、`--bin-dir`、`--config-file` 和用于后续操作提示的 `--state-dir`；
+默认路径满足普通单用户部署。安装末尾按选定目录的部署记录区分初次 prepare、升级替换和同版本重装；
+已有旧版本部署会直接提示 `down → prepare --replace → preflight → up → check`。
+自定义路径会出现在输出命令中，`--state-dir` 默认仍为 `~/.config/usdb-public/default`；安装器不探测或操作容器。
+部署元数据异常或源配置身份不匹配时，先提示检查原配置和状态目录；详见[安装后提示](../docs/handbook/installation.md#2-安装工具)。
 例如在一键安装命令之后追加 `--install-root /data/usdb-public` 可调整版本存储位置。
 已有 `usdb-explorer` 或 `usdb-public` 命令若不属于该安装目录，会报错并保留它，不会覆盖其他工具或手工安装。
 

@@ -30,6 +30,7 @@ Install this pinned USDB Explorer release for the current user.
   --install-root DIR  Version storage (default ~/.local/share/usdb-public)
   --bin-dir DIR       Command directory (default ~/.local/bin)
   --config-file FILE  Preserve or create configuration (default ~/.config/usdb-public/config.json)
+  --state-dir DIR     Inspect this deployment for next steps (default ~/.config/usdb-public/default)
 Existing configuration, deployment data and running services are preserved.
 USDB_PUBLIC_INSTALLER_HELP
   exit 0
