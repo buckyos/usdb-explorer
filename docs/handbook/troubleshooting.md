@@ -136,6 +136,26 @@ tracing 或索引速度。单次成功也不能排除间歇性故障。若连接
 本机入口。此命令只读，不修改前端配置，也不等于公布入口检查通过；工具不会自动回退后报告成功。
 HTTPS 模式改用正确域名和证书的入口，不能以 loopback HTTP 跳转或跳过 TLS 校验代替验证。
 
+## 内部调用索引报 extract_transactions_params 错误
+
+若 backend 日志持续出现 `EthereumJSONRPC.Geth.extract_transactions_params/3` 的
+`FunctionClauseError`，检查已生成部署的 `ETHEREUM_JSONRPC_GETH_TRACE_BY_BLOCK`。
+当前 USDB 的区块 trace 条目只有 `result`，而固定的 Blockscout 9.0.2 按区块解析要求额外的
+`txHash`；空区块可能检查通过，含交易的历史区块仍会解析失败。
+
+修复版生成 `ETHEREUM_JSONRPC_GETH_TRACE_BY_BLOCK=false` 和
+`INDEXER_INTERNAL_TRANSACTIONS_TRACER_TYPE=call_tracer`。内部调用继续索引，后端按已索引的
+交易哈希调用 `debug_traceTransaction`，保留交易哈希、区块和交易序号关联；不从位置猜测缺失的哈希。
+实现依据见 [Blockscout 9.0.2 追踪适配器](https://github.com/blockscout/blockscout/blob/v9.0.2/apps/ethereum_jsonrpc/lib/ethereum_jsonrpc/geth.ex)
+及 [内部调用 fetcher](https://github.com/blockscout/blockscout/blob/v9.0.2/apps/indexer/lib/indexer/fetcher/internal_transaction.ex)。
+
+安装包含修复的版本后，执行 `down` → `prepare --replace` → `preflight` → `up` → `check`，
+保留原有数据库和数据卷。等待后端启动并重试待处理区块，确认上述错误不再持续出现，再核验一笔
+已知历史交易的内部调用页面或 `/api/v2/transactions/<交易哈希>/internal-transactions`。
+`check` 的基础 RPC/API 通过不代表内部调用已全部补齐；自动窗口无交易时，仍需选择一个已知的
+历史 `rpc.transaction` 样本进行追踪验收。按交易追踪会增加多交易区块的 RPC 请求数，既有内部
+调用索引并发限制继续生效。
+
 ## 页面打开但数据不显示
 
 HTML 和数据经过不同路由。前端使用 prepare 时的 `explorer_url` 生成 API origin；只修改路由器、

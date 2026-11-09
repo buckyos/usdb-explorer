@@ -1,0 +1,29 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-transaction-hash-tracing",
+  "type": "fixed",
+  "scopes": [
+    "deployment",
+    "explorer",
+    "testing",
+    "documentation"
+  ],
+  "summary": "修复 USDB 内部调用索引因区块追踪缺少 txHash 而反复失败的问题",
+  "details": [
+    "将 Blockscout Geth 追踪方式设为按交易哈希调用 debug_traceTransaction，并显式使用原生 call_tracer。当前 USDB 的 debug_traceBlockByNumber 返回仅含 result 的包装，与固定 Blockscout 后端要求 txHash 的按区块解析路径不兼容。",
+    "保留内部调用索引及交易哈希、区块、交易序号关联，不关闭索引或伪造区块 trace 字段。多交易区块会增加 RPC 请求数量，现有索引并发限制不变。",
+    "新增固定摘要后端镜像的隔离回归，覆盖旧包装失败、交易哈希关联、乱序批量响应、嵌套调用、EVM revert 和空交易批次，并接入 CI。"
+  ],
+  "operator_actions": [
+    "安装修复版后执行 down、prepare --replace、preflight、up、check，保留数据库与数据卷；观察待处理内部调用重新索引，确认 backend 不再持续报告 extract_transactions_params 错误，并核验已知历史交易的内部调用。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": true
+  },
+  "references": [
+    "https://github.com/blockscout/blockscout/blob/v9.0.2/apps/ethereum_jsonrpc/lib/ethereum_jsonrpc/geth.ex"
+  ]
+}

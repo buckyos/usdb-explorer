@@ -348,7 +348,10 @@ def compose_document(config, identity, lock, root):
                 "PORT": "4000", "BLOCKSCOUT_HOST": url.netloc, "BLOCKSCOUT_PROTOCOL": url.scheme,
                 "ETHEREUM_JSONRPC_VARIANT": "geth", "ETHEREUM_JSONRPC_HTTP_URL": rpc["read_url"],
                 "ETHEREUM_JSONRPC_TRACE_URL": rpc["trace_url"], "ETHEREUM_JSONRPC_TRANSPORT": "http",
-                "ETHEREUM_JSONRPC_DISABLE_ARCHIVE_BALANCES": "false", "ETHEREUM_JSONRPC_GETH_TRACE_BY_BLOCK": "true",
+                # USDB block traces omit txHash, which Blockscout's block parser requires.
+                # Trace by the indexed transaction hash to preserve internal calls and their identity.
+                "ETHEREUM_JSONRPC_DISABLE_ARCHIVE_BALANCES": "false", "ETHEREUM_JSONRPC_GETH_TRACE_BY_BLOCK": "false",
+                "INDEXER_INTERNAL_TRANSACTIONS_TRACER_TYPE": "call_tracer",
                 "ETHEREUM_JSONRPC_DEBUG_TRACE_TRANSACTION_TIMEOUT": "5s", "ETHEREUM_JSONRPC_HTTP_TIMEOUT": "10000",
                 "CHAIN_ID": str(identity["chain_id"]), "COIN": "USDB", "COIN_NAME": "USDB Testnet", "CHAIN_TYPE": "default",
                 "DISABLE_MARKET": "true", "DISABLE_FILE_LOGGING": "true", "DISABLE_WEBAPP": "true",

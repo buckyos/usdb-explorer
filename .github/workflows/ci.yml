@@ -53,6 +53,8 @@ jobs:
           explorer/usdb-public --help
       - name: Exercise optional Nginx routing, HTTPS and reload in isolated containers
         run: python3 tests/test_public_ingress.py
+      - name: Verify transaction tracing against the pinned Blockscout backend
+        run: python3 tests/test_backend_tracing.py
       - name: Build the signer and verify faucet persistence with an isolated fake chain
         run: |
           python3 - <<'PYTHON'
