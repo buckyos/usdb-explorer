@@ -22,6 +22,7 @@ export default function Overview() {
     chainId: data.network.chain_id_hex, chainName: data.network.name,
     nativeCurrency: data.network.native_currency, rpcUrls: data.network.rpc_urls,
     blockExplorerUrls: data.network.explorer_urls,
+    ...(data.network.icon_urls?.length ? { iconUrls: data.network.icon_urls } : {}),
   };
   const setupIssue = network && networkSetupIssue(network);
 
@@ -92,7 +93,10 @@ export default function Overview() {
       { data.indexer.error_code && <ErrorNotice message={ errorMessage(data.indexer.error_code) }/> }
       <div className={ styles.panel }><h2>Connect to { data.network.name }</h2>
         <dl><dt>Chain ID</dt><dd>{ data.network.chain_id } ({ data.network.chain_id_hex })</dd>
-          <dt>Currency</dt><dd>{ data.network.native_currency.symbol } · { data.network.native_currency.decimals } decimals</dd>
+          <dt>Currency</dt><dd className={ styles.currency }>
+            { /* eslint-disable-next-line @next/next/no-img-element */ }
+            <img src="/assets/usdb/logo.png" width="24" height="24" alt="USDB coin"/>
+            { data.network.native_currency.symbol } · { data.network.native_currency.decimals } decimals</dd>
           <dt>Public RPC</dt><dd>{ data.network.rpc_urls.join(', ') }</dd>
           <dt>Explorer</dt><dd>{ data.network.explorer_urls.join(', ') }</dd>
           <dt>Genesis hash</dt><dd>{ data.network.genesis_hash }</dd>

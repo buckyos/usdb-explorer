@@ -115,6 +115,7 @@ RUN cd ./deploy/tools/envs-validator && yarn build
 ### FAVICON GENERATOR
 # Copy dependencies and source code
 COPY --from=deps /favicon-generator/node_modules ./deploy/tools/favicon-generator/node_modules
+RUN node ./deploy/tools/favicon-generator/usdb.cjs
 
 
 ### SITEMAP GENERATOR
@@ -148,7 +149,6 @@ RUN mkdir .next
 RUN chown nextjs:nodejs .next
 
 COPY --from=builder /app/next.config.js ./
-COPY --from=builder /app/public ./public
 COPY --from=builder /app/package.json ./package.json
 COPY --from=source /source/LICENSE ./LICENSE.blockscout
 
@@ -171,7 +171,6 @@ COPY --from=source /source/deploy/scripts/og_image_generator.js .
 COPY --from=source --chmod=755 /source/deploy/scripts/favicon_generator.sh .
 COPY --from=builder /app/deploy/tools/favicon-generator ./deploy/tools/favicon-generator
 RUN ["chmod", "-R", "777", "./deploy/tools/favicon-generator"]
-RUN ["chmod", "-R", "777", "./public"]
 ## Sitemap generator
 COPY --from=source --chmod=755 /source/deploy/scripts/sitemap_generator.sh .
 COPY --from=builder /app/deploy/tools/sitemap-generator ./deploy/tools/sitemap-generator
@@ -189,6 +188,11 @@ COPY --from=source /source/configs/envs ./configs/envs
 # https://nextjs.org/docs/advanced-features/output-file-tracing
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Traced standalone files may contain upstream defaults captured before favicon generation.
+# Copy the final public assets last so they cannot overwrite the approved USDB icons.
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+RUN ["chmod", "-R", "777", "./public"]
 
 ENTRYPOINT ["./entrypoint.sh"]
 

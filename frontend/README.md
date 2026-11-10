@@ -55,3 +55,22 @@ intercept public API responses, so they do not require a node or mining keys.
 The release pipeline publishes `usdb-explorer-frontend` with the Explorer tag,
 pins its digest in the kit, records it in the release change assets, and scans
 it with the same source-identity and testnet security policy as the gateway.
+
+## USDB branding
+
+`overlay/public/assets/usdb/logo.png` is the operator-supplied 512×512 USDB mark,
+kept byte-for-byte as provided (SHA-256
+`56e2c3ce0c8737fd9df9a2e2546d9ffee70bd23e47fceba13dd03d5e6055d5c0`).
+The default navigation uses it in both themes, with a text wordmark on expanded
+and mobile layouts. Upstream custom network-logo/icon overrides remain available.
+The network overview also identifies the native currency with this mark.
+
+The image build uses the pinned upstream `favicons` dependency to generate browser,
+Apple and Android icons and a USDB web manifest. The default startup reuses these
+bundled files, without fetching the public origin or installing favicon packages.
+The original mark is also the default Open Graph image. Existing explicit favicon
+and OG-image overrides retain the upstream behavior.
+
+`/assets/usdb/logo.png` is public on the Explorer origin. Generated `network.json`,
+Overview metadata and both add-network buttons advertise this URL via `iconUrls`.
+Wallets may ignore it; this does not promise MetaMask native-coin icon registration.

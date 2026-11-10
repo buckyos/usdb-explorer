@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.request
 
+from common.branding import exercise_branding
 from common.wallet import exercise_wallet, exercise_public_wallet
 
 HASH = "a" * 64
@@ -59,6 +60,7 @@ def response(resource, mode):
                      "genesis_hash": "0x" + HASH, "bundle_id": "usdb-testnet-v1", "btc_network": "btc-mainnet",
                      "btc_index_origin_height": 963800, "rpc_urls": ["http://127.0.0.1:28080/rpc"],
                      "explorer_urls": ["http://127.0.0.1:28080"],
+                     "icon_urls": ["http://127.0.0.1:28080/assets/usdb/logo.png"],
                      "native_currency": {"name": "USDB", "symbol": "USDB", "decimals": 18}},
                      "chain": {"height": "215", "hash": "0x" + HASH, "timestamp": "1789776000"},
                      "explorer": {"status": "ready", "height": "213", "hash": "0x" + HASH},
@@ -173,6 +175,7 @@ def exercise(url, output):
         page.get_by_role("button", name="Add network to wallet").click()
         expect(page.get_by_text("No compatible wallet was detected", exact=False)).to_be_visible()
         page.screenshot(path=str(output / "network-overview.png"), full_page=True)
+        exercise_branding(page, context, expect, url, output)
         exercise_wallet(page, context, expect, network, output)
         page.locator('[aria-label="USDB link group"]:visible').hover()
         expect(page.get_by_role("link", name="Miner Passes link", exact=True).first).to_be_visible()
@@ -265,7 +268,7 @@ def exercise(url, output):
         assert not errors, errors
         assert not sockets, f"Page navigation attempted unavailable WebSockets: {sockets}"
         browser.close()
-    print("Frontend browser checks passed: wallet URL checks, wallet errors, pending requests, overview, passes, economics, faucet, idempotent retry, recovery, mobile, unavailable, reorg.")
+    print("Frontend browser checks passed: bundled branding, favicon sizes, manifest, light/dark/mobile, wallet URL checks, wallet errors, pending requests, overview, passes, economics, faucet, idempotent retry, recovery, mobile, unavailable, reorg.")
 
 
 def main():

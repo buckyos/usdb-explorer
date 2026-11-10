@@ -34,6 +34,7 @@ def exercise_wallet(page, context, expect, network, output):
     assert calls[0]["params"][0]["chainId"] == hex(202610030)
     assert calls[0]["params"][0]["nativeCurrency"]["symbol"] == "USDB"
     assert calls[0]["params"][0]["rpcUrls"] == ["http://127.0.0.1:28080/rpc"]
+    assert calls[0]["params"][0]["iconUrls"] == ["http://127.0.0.1:28080/assets/usdb/logo.png"]
 
     for error, message in (
         ({"code": 4001}, "cancelled in your wallet"),
@@ -72,6 +73,7 @@ def exercise_wallet(page, context, expect, network, output):
     footer.click()
     expect(page.get_by_text("Successfully added network to your wallet", exact=True)).to_be_visible()
     assert [item["method"] for item in page.evaluate("window.__walletCalls")] == ["wallet_addEthereumChain", "wallet_switchEthereumChain"]
+    assert page.evaluate("window.__walletCalls[0].params[0].iconUrls") == ["http://localhost/assets/usdb/logo.png"]
 
     for urls, message in (
         ({"rpc_urls": ["http://usdb-testnet.example:28080/rpc"]}, "HTTPS public RPC URL"),

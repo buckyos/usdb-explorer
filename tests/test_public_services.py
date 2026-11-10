@@ -123,6 +123,7 @@ class PublicServicesTests(unittest.TestCase):
                     self.assertEqual(frontend["NEXT_PUBLIC_APP_PORT"], port)
                     self.assertEqual(frontend["NEXT_PUBLIC_NETWORK_RPC_URL"], origin + "/rpc")
                     self.assertEqual(CONFIG.read_json(self.state / "network.json")["rpcUrls"], [origin + "/rpc"])
+                    self.assertEqual(CONFIG.read_json(self.state / "network.json")["iconUrls"], [origin + "/assets/usdb/logo.png"])
 
     def test_bundled_tls_mount_and_certificate_rotation(self):
         certificates = self.root / "certificates"

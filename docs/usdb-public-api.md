@@ -38,6 +38,12 @@ height and expected historical identity; cursor queries carry that identity.
 These are upstream assertions bound to a specific snapshot, not independently
 verified consensus proofs or reward settlement evidence.
 
+The overview's `network.icon_urls` carries the public logo URLs from `network.json`
+(`iconUrls` in the wallet format). Older prepared metadata may omit icons or return
+null; clients should omit the optional wallet field in that case. The bundled
+original is served by the frontend at `/assets/usdb/logo.png`. These are display
+hints; wallets may ignore them and no native-token listing is implied.
+
 The overview distinguishes unavailable optional services from the USDB head.
 Pass queries require a query-ready and consensus-ready indexer. A chain identity
 failure closes both routes. Requests share the gateway's peer rate limiter and

@@ -1,0 +1,28 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-usdb-branding",
+  "type": "changed",
+  "scopes": [
+    "explorer",
+    "gateway",
+    "deployment",
+    "documentation",
+    "testing"
+  ],
+  "summary": "统一 Explorer 的 USDB 品牌图标与公开钱包图标元数据",
+  "details": [
+    "使用提供的 USDB 原图替换默认导航占位图，覆盖浅色、深色、折叠菜单和手机布局，并为原生币资料增加图标。",
+    "构建时生成 favicon、Apple／Android 图标和 USDB manifest，打包默认分享图片；默认启动无需访问公网或安装 favicon 依赖。",
+    "公开同源 Logo 地址，并在 network.json、Overview 和两个添加网络入口提供 iconUrls；钱包可忽略该字段，不保证 MetaMask 原生币图标收录。"
+  ],
+  "operator_actions": [
+    "安装新版本后执行 down、prepare --replace、preflight、up、check 应用前端与网络元数据；保留已有配置、凭据、钱包和数据卷。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": true
+  },
+  "references": []
+}

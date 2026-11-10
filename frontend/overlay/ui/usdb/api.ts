@@ -54,6 +54,7 @@ export type OverviewData = {
     rpc_urls: Array<string>;
     explorer_urls: Array<string>;
     sourcedao_url?: string;
+    icon_urls?: Array<string>;
     native_currency: { name: string; symbol: string; decimals: number };
   };
   chain: { height: string; hash: string; timestamp: string };

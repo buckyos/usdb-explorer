@@ -71,7 +71,7 @@ func publicFixture(t *testing.T, mutate func(string, []json.RawMessage, map[stri
 		t.Fatal(err)
 	}
 	g.catalog = networkCatalog{Bundle: "fixture", ChainID: 1, Genesis: g.genesis, BTCNetwork: "btc-mainnet", RulesScope: "usdb-testnet-v1", BTCOrigin: 90, Registry: hash}
-	g.network = []byte(`{"chainName":"USDB Testnet","rpcUrls":["https://example.invalid/rpc"],"blockExplorerUrls":["https://example.invalid"],"nativeCurrency":{"name":"USDB","symbol":"USDB","decimals":18}}`)
+	g.network = []byte(`{"chainName":"USDB Testnet","rpcUrls":["https://example.invalid/rpc"],"blockExplorerUrls":["https://example.invalid"],"iconUrls":["https://example.invalid/assets/usdb/logo.png"],"nativeCurrency":{"name":"USDB","symbol":"USDB","decimals":18}}`)
 	g.explorerURL = server.URL
 	return g
 }
@@ -92,6 +92,10 @@ func TestUSDBOverviewSeparatesHeightsAndSanitizesReadiness(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &result)
 	if result["chain"].(map[string]any)["height"] != "6" || result["explorer"].(map[string]any)["height"] != "5" || result["indexer"].(map[string]any)["btc_height"] != float64(100) {
 		t.Fatal(result)
+	}
+	icons := result["network"].(map[string]any)["icon_urls"].([]any)
+	if len(icons) != 1 || icons[0] != "https://example.invalid/assets/usdb/logo.png" {
+		t.Fatal("public icon metadata lost", result)
 	}
 	if strings.Contains(w.Body.String(), "PRIVATE") || strings.Contains(w.Body.String(), "127.0.0.1") {
 		t.Fatal("private upstream data escaped")

@@ -103,6 +103,25 @@ def prepare(archive, destination):
                  "https://github.com/buckyos/usdb-explorer/tree/")
     replace_once(destination, "ui/snippets/footer/Footer.tsx", "https://github.com/blockscout/frontend/commit/",
                  "https://github.com/buckyos/usdb-explorer/commit/")
+    # Keep upstream operator overrides, while using a local USDB brand by default.
+    replace_once(destination, "ui/snippets/networkMenu/NetworkLogo.tsx", "import config from 'configs/app';",
+                 "import config from 'configs/app';\nimport Brand from 'ui/usdb/Brand';")
+    replace_once(destination, "ui/snippets/networkMenu/NetworkLogo.tsx", "  return (\n    <chakra.a",
+                 "  if (!logoSrc && !iconSrc) { return <Brand isCollapsed={ isCollapsed } onClick={ onClick } className={ className }/>; }\n\n  return (\n    <chakra.a")
+    replace_once(destination, "lib/web3/useAddChain.tsx", "    blockExplorerUrls: [ chainConfig.app.baseUrl ],",
+                 "    blockExplorerUrls: [ chainConfig.app.baseUrl ],\n    iconUrls: [ chainConfig.app.baseUrl + '/assets/usdb/logo.png' ],")
+    replace_once(destination, "deploy/scripts/favicon_generator.sh", "#!/bin/bash\n",
+                 "#!/bin/bash\n\n# The default bundle was generated from the local USDB mark during image build.\n"
+                 'if [ -z "$FAVICON_MASTER_URL" ] && [ -z "$NEXT_PUBLIC_NETWORK_ICON" ]; then\n'
+                 '    echo "Using bundled USDB favicons."\n    exit 0\nfi\n')
+    replace_once(destination, "pages/_document.tsx", "          { /* FAVICON */ }",
+                 '          { /* FAVICON */ }\n          <link rel="manifest" href="/assets/favicon/manifest.webmanifest"/>')
+    replace_once(destination, "lib/metadata/generate.ts", "imageUrl: pageOgType !== 'Regular page' ? config.meta.og.imageUrl : '',",
+                 "imageUrl: config.meta.og.imageUrl,")
+    # Refresh browser caches once when replacing the upstream default icons.
+    for filename in ("favicon-16x16.png", "favicon-32x32.png", "favicon-48x48.png", "favicon.ico",
+                     "apple-touch-icon-180x180.png", "android-chrome-192x192.png"):
+        replace_once(destination, "pages/_document.tsx", f'/assets/favicon/{filename}"', f'/assets/favicon/{filename}?v=usdb-1"')
     shutil.copytree(ROOT / "overlay", destination, dirs_exist_ok=True)
 
 

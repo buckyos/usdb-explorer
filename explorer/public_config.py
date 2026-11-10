@@ -249,7 +249,8 @@ def wallet_network(config, identity):
     origin = config["ingress"]["explorer_url"]
     return {"chainId": hex(identity["chain_id"]), "chainName": "USDB Testnet",
             "nativeCurrency": {"name": "USDB", "symbol": "USDB", "decimals": 18},
-            "rpcUrls": [origin + "/rpc"], "blockExplorerUrls": [origin]}
+            "rpcUrls": [origin + "/rpc"], "blockExplorerUrls": [origin],
+            "iconUrls": [origin + "/assets/usdb/logo.png"]}
 
 
 def faucet_token(credentials):
