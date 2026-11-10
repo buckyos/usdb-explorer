@@ -21,6 +21,7 @@ import public_checks as CHECK
 import public_config as CONFIG
 import usdb_public as PUBLIC
 import package_release as RELEASE
+from common.check_timing import CheckClock
 from common.public_services import PublicRpcFixture, rpc_response, rpc_server
 
 
@@ -187,7 +188,9 @@ class IngressComparisonTests(unittest.TestCase):
         def canonical(config, identity, **kwargs):
             return CHECK.check_explorer(config, identity, rpc_factory=self.client, **kwargs)
         with mock.patch.object(INGRESS, "fetch", side_effect=transport), mock.patch.object(INGRESS, "check_explorer", side_effect=canonical):
-            result = INGRESS.probe_ingress(target, self.config, self.identity, upstream)
+            clock = CheckClock()
+            result = INGRESS.probe_ingress(target, self.config, self.identity, upstream,
+                                          requests=CHECK.CheckRequests(clock=clock.now, sleep=clock.sleep))
         self.assertEqual(result["status"], "FAILED")
         self.assertEqual(result["checks"], {"rpc": "PASSED", "api": "PASSED", "canonical": "FAILED"})
         self.assertEqual(result["error"]["category"], "EXPLORER_SAMPLE_UNAVAILABLE")

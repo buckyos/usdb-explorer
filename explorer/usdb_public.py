@@ -390,6 +390,9 @@ def print_check_report(command, report, *, json_output=False):
             print("Target: --url override; the configured visitor URL was NOT checked.")
         else:
             print("Target: configured visitor URL, reached from this host.")
+    retries = report.get("check_retries", {})
+    if any(retries.values()):
+        print(f"Check retries: rate-limit={retries.get('rate_limit', 0)}, index-wait={retries.get('index_wait', 0)}")
     for warning in report.get("warnings", []):
         print(f"WARNING: {warning}")
     if command == "preflight":

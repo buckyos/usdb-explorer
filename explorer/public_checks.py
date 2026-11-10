@@ -5,6 +5,8 @@ import json
 import re
 import socket
 import ssl
+import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -23,6 +25,59 @@ class RpcFailure(ValueError):
         self.category = category
         self.detail = detail
         super().__init__(f"[{category}] {detail}")
+
+
+class CheckRequests:
+    """Share a paced public-request budget and a fixed index grace window across check paths."""
+    def __init__(self, *, clock=None, sleep=None):
+        self.clock = clock or time.monotonic
+        self.sleep = sleep or time.sleep
+        self.lock = threading.Lock()
+        self.next_request = 0.0
+        self.index_deadline = None
+        self.retries = {"rate_limit": 0, "index_wait": 0}
+
+    def counts(self):
+        """Return aggregate retry counts without exposing URLs or response payloads."""
+        with self.lock:
+            return dict(self.retries)
+
+    def call(self, operation, *args, indexed=False):
+        """Retry only rate limits and explicitly selected indexed samples, keeping arguments fixed."""
+        rate_retries = 0
+        while True:
+            with self.lock:
+                delay = self.next_request - self.clock()
+                if delay > 0:
+                    self.sleep(delay)
+                # All routes share a proxy quota: allow five request starts per second, no burst.
+                self.next_request = self.clock() + 0.2
+            try:
+                return operation(*args)
+            except RpcFailure as error:
+                if error.category == "RPC_RATE_LIMIT":
+                    if rate_retries == 2:
+                        raise RpcFailure(error.category, error.detail +
+                                         " Check exhausted two rate-limit retries; inspect the public proxy/gateway quota and load.") from None
+                    rate_retries += 1
+                    with self.lock:
+                        self.retries["rate_limit"] += 1
+                        # Back off the whole check, not just the worker that received the 429.
+                        self.next_request = max(self.next_request, self.clock() + rate_retries)
+                    continue
+                missing = (indexed and error.category == "RPC_HTTP"
+                           and error.detail.startswith("HTTP endpoint returned status 404;"))
+                if not missing:
+                    raise
+                with self.lock:
+                    if self.index_deadline is None:
+                        self.index_deadline = self.clock() + 30
+                    remaining = self.index_deadline - self.clock()
+                    if remaining <= 0:
+                        raise
+                    self.retries["index_wait"] += 1
+                # One grace window for all blocks, transactions and routes; never move the checkpoint.
+                self.sleep(min(2, remaining))
 
 
 def rpc_operation(method, params):
@@ -90,7 +145,8 @@ def named_rpc(client, name, *, guidance=""):
         try:
             return client(method, params)
         except RpcFailure as error:
-            raise RpcFailure(error.category, f"{name}: {error.detail}" + (f" {guidance}" if guidance else "")) from None
+            network_error = error.category in {"RPC_TIMEOUT", "RPC_DNS", "RPC_CONNECTION", "RPC_CONNECTION_REFUSED"}
+            raise RpcFailure(error.category, f"{name}: {error.detail}" + (f" {guidance}" if guidance and network_error else "")) from None
     return call
 
 
@@ -125,7 +181,7 @@ def fetch(url, payload=None, *, opener=None, timeout=15):
         if error.code in {401, 403}:
             category, advice = "RPC_AUTH", "check upstream credentials and private proxy access rules"
         elif error.code == 429:
-            category, advice = "RPC_RATE_LIMIT", "upstream rate limit reached; reduce concurrent requests or adjust the private RPC quota, then retry"
+            category, advice = "RPC_RATE_LIMIT", "endpoint rate limit reached; reduce request rate or inspect the serving proxy/gateway quota"
         elif error.code in {408, 504}:
             category, advice = "RPC_TIMEOUT", "upstream or proxy timed out; check node load, readiness and proxy timeouts, then retry"
         else:
@@ -341,7 +397,7 @@ def preflight(config, identity, *, rpc_factory=ReadRpc):
 
 
 def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch, explorer_url=None,
-                   preflight_report=None, public_rpc_factory=None, route_label=None):
+                   preflight_report=None, public_rpc_factory=None, route_label=None, requests=None):
     """Compare the public route and indexed data at a fixed upstream checkpoint."""
     origin = explorer_url if explorer_url is not None else config["ingress"]["explorer_url"]
     endpoint(origin, origin=True)
@@ -351,17 +407,20 @@ def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch, ex
     route = route_label or ("check --url" if explorer_url is not None else "ingress.explorer_url")
     guidance = ("Upstream preflight passed. Check the Explorer origin, proxy listener, port forwarding and NAT loopback; "
                 "use the actual visitor URL, not a documentation example. No mining is needed for a genesis RPC response.")
-    public = named_rpc((public_rpc_factory or rpc_factory)(origin + "/rpc"), route + " /rpc", guidance=guidance)
+    requests = requests or CheckRequests()
+    public_client = (public_rpc_factory or rpc_factory)(origin + "/rpc")
+    public = named_rpc(lambda method, params: requests.call(public_client, method, params), route + " /rpc", guidance=guidance)
 
     def api(path):
+        indexed_sample = path.startswith("/api/v2/blocks/0x") or path.startswith("/api/v2/transactions/0x")
         try:
-            return api_fetch(origin + path)
+            return requests.call(api_fetch, origin + path, indexed=indexed_sample)
         except RpcFailure as error:
-            if error.category == "RPC_HTTP" and error.detail.startswith("HTTP endpoint returned status 404;") and (
-                    path.startswith("/api/v2/blocks/0x") or path.startswith("/api/v2/transactions/0x")):
-                raise RpcFailure("EXPLORER_SAMPLE_UNAVAILABLE", f"{route} /api/v2: sampled block or transaction returned HTTP 404; "
-                                 "the indexer may not have reached this checkpoint yet. Wait briefly and rerun check; "
-                                 "if it persists, inspect indexing progress and API routing. RPC reachability does not certify indexed data.") from None
+            if error.category == "RPC_HTTP" and error.detail.startswith("HTTP endpoint returned status 404;") and indexed_sample:
+                raise RpcFailure("EXPLORER_SAMPLE_UNAVAILABLE", f"{route} /api/v2: sampled block or transaction still returned HTTP 404 "
+                                 "after the shared 30-second index grace window; the indexer may not have reached this checkpoint yet. "
+                                 "The checkpoint was not changed. Inspect indexing progress and API routing; "
+                                 "RPC reachability does not certify indexed data.") from None
             raise RpcFailure(error.category, f"{route} /api/v2: {error.detail} "
                              "Check proxy, gateway and Blockscout backend readiness; absence of mined blocks does not explain a connection failure.") from None
 
@@ -393,6 +452,7 @@ def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch, ex
         if report["checkpoint"]["number"] == 0:
             same_genesis_head([public, *sources], checkpoint)
         report["status"] = "CHECKED_NO_TRANSACTION_SAMPLE"
+        report["check_retries"] = requests.counts()
         return report
     receipt = public("eth_getTransactionReceipt", [transaction])
     indexed_tx = api("/api/v2/transactions/" + transaction)
@@ -418,4 +478,5 @@ def check_explorer(config, identity, *, rpc_factory=ReadRpc, api_fetch=fetch, ex
             same_checkpoint(client, canonical)
     same_checkpoint(public, checkpoint)
     report["status"] = "CHECKED"
+    report["check_retries"] = requests.counts()
     return report

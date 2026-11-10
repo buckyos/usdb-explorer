@@ -10,7 +10,7 @@ import subprocess
 import time
 import urllib.request
 
-from public_checks import NoRedirect, ReadRpc, RpcFailure, check_explorer, fetch, preflight, quantity
+from public_checks import CheckRequests, NoRedirect, ReadRpc, RpcFailure, check_explorer, fetch, preflight, quantity
 from public_config import endpoint
 
 
@@ -126,26 +126,28 @@ def error_document(error):
     return {"category": "VALIDATION_ERROR", "message": "Unexpected response or local validation failure; inspect upstream and Explorer readiness."}
 
 
-def probe_ingress(target, config, identity, upstream):
+def probe_ingress(target, config, identity, upstream, *, requests=None):
     """Separate basic reachability from strict canonical comparisons, including fresh-block index lag."""
+    requests = requests or CheckRequests()
     opener = direct_opener(target["connect_to"]) if "connect_to" in target else None
     transport = partial(fetch, opener=opener, timeout=5)
     origin = target["origin"]
     result = {"status": "PASSED", "checks": {"rpc": "NOT_RUN", "api": "NOT_RUN", "canonical": "NOT_RUN"}, "check_errors": {}}
 
     def rpc():
-        if quantity(ReadRpc(origin + "/rpc", fetcher=transport)("eth_chainId", [])) != identity["chain_id"]:
+        if quantity(requests.call(ReadRpc(origin + "/rpc", fetcher=transport), "eth_chainId", [])) != identity["chain_id"]:
             raise ValueError("public RPC chain ID differs from the frozen network")
 
     def api():
-        page = transport(origin + "/api/v2/blocks")
+        page = requests.call(transport, origin + "/api/v2/blocks")
         if not isinstance(page, dict) or not isinstance(page.get("items"), list):
             raise ValueError("explorer block list API returned an invalid response")
 
     def canonical():
         check_explorer(config, identity, preflight_report=upstream,
                        explorer_url=origin, api_fetch=transport,
-                       public_rpc_factory=lambda url: ReadRpc(url, fetcher=transport), route_label="ingress." + target["name"])
+                       public_rpc_factory=lambda url: ReadRpc(url, fetcher=transport),
+                       route_label="ingress." + target["name"], requests=requests)
 
     for name, operation in (("rpc", rpc), ("api", api), ("canonical", canonical)):
         if name == "canonical" and result["status"] == "FAILED":
@@ -170,6 +172,15 @@ def diagnosis(report):
     failed = [row for row in rows if row["status"] == "FAILED"]
     if not failed:
         return "All checked paths passed from this host. Verify the visitor origin separately from an external client; this is a point-in-time check."
+    categories = {error["category"] for row in failed
+                  for error in (row.get("check_errors") or {"failure": row["error"]}).values()}
+    if categories <= {"RPC_RATE_LIMIT", "EXPLORER_SAMPLE_UNAVAILABLE"}:
+        reasons = []
+        if "RPC_RATE_LIMIT" in categories:
+            reasons.append("Public RPC/API requests remain rate limited after bounded retries; inspect the shared proxy/gateway quota and traffic.")
+        if "EXPLORER_SAMPLE_UNAVAILABLE" in categories:
+            reasons.append("The fixed block/transaction sample is still unavailable after the index grace window; inspect indexing progress and API routing.")
+        return " ".join(reasons)
     configured = next(row for row in rows if row["name"] == "configured")
     local_reachable = any(row["name"] != "configured" and (row["status"] == "PASSED" or
                           all(row.get("checks", {}).get(name) == "PASSED" for name in ("rpc", "api"))) for row in rows)
@@ -185,8 +196,10 @@ def diagnosis(report):
     return "Ingress checks failed; inspect the proxy listener, service health and each reported RPC/API error. Upstream preflight passed."
 
 
-def check_ingresses(config, identity, *, discover=host_addresses, discover_ipv6=partial(host_addresses, version=6), upstream_check=preflight, probe=probe_ingress):
+def check_ingresses(config, identity, *, discover=host_addresses, discover_ipv6=partial(host_addresses, version=6), upstream_check=preflight, probe=None, requests=None):
     """Collect all applicable results; failures remain failures even when another route passes."""
+    requests = requests or CheckRequests()
+    probe = probe or partial(probe_ingress, requests=requests)
     targets, warnings = ingress_targets(config, discover=discover, discover_ipv6=discover_ipv6)
     started = time.monotonic()
     try:
@@ -224,6 +237,7 @@ def check_ingresses(config, identity, *, discover=host_addresses, discover_ipv6=
             "CHECKED_NO_TRANSACTION_SAMPLE" if upstream.get("trace_sample") == "pending_no_transaction_sample" else "CHECKED")
         if failures:
             report["error"] = next((row["error"] for row in failures if row["name"] == "configured"), failures[0]["error"])
+    report["check_retries"] = requests.counts()
     report["ingress_check"] = "multiple_origins"
     report["warnings"] = list(report.get("warnings", [])) + warnings
     report["diagnosis"] = diagnosis(report)

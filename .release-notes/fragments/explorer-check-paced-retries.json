@@ -1,0 +1,26 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-check-paced-retries",
+  "type": "fixed",
+  "scopes": [
+    "deployment",
+    "documentation",
+    "testing"
+  ],
+  "summary": "检查入口时统一节流并有限等待索引，减少自触发限流和新区块索引延迟失败",
+  "details": [
+    "check 的所有入口公共 RPC/API 共用每秒 5 次的节流；429 最多重试两次并全局退避 1 秒、2 秒，check --url 同样适用，不调整服务端额度。",
+    "固定区块和交易样本返回 404 时共用自首次缺失开始的 30 秒等待窗口；保持同一检查点并复核哈希和回执，持续落后、重组和不一致仍失败。",
+    "输出重试计数并分别诊断限流和索引等待耗尽；TLS、认证和连接故障不按索引延迟重试，避免将已收到 HTTP 响应的问题误导为 NAT 或证书故障。"
+  ],
+  "operator_actions": [
+    "安装包含此改动的工具后重新运行 check；仅此检查优化无需 prepare 或服务重启，其他版本变更仍遵循对应升级说明。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": false
+  },
+  "references": []
+}
