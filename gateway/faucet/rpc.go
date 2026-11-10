@@ -130,7 +130,7 @@ func address(s string) (common.Address, error) {
 	return a, nil
 }
 
-func signedTransfer(ctx context.Context, rpc Chain, c Config, key *ecdsa.PrivateKey, to common.Address, amount *big.Int) (*types.Transaction, error) {
+func transferGas(ctx context.Context, rpc Chain, c Config, to common.Address) (*big.Int, error) {
 	if err := identity(ctx, rpc, c); err != nil {
 		return nil, err
 	}
@@ -148,6 +148,22 @@ func signedTransfer(ctx context.Context, rpc Chain, c Config, key *ecdsa.Private
 	if code != "0x" {
 		return nil, errors.New("RECIPIENT_NOT_EOA")
 	}
+	gas, err := number(ctx, rpc, "eth_gasPrice")
+	if err != nil {
+		return nil, err
+	}
+	maxGas, _ := Units(c.MaxGasPriceGwei, 9)
+	if gas.Sign() == 0 || gas.Cmp(maxGas) > 0 {
+		return nil, errors.New("GAS_PRICE_TOO_HIGH")
+	}
+	return gas, nil
+}
+
+func signedTransfer(ctx context.Context, rpc Chain, c Config, key *ecdsa.PrivateKey, to common.Address, amount *big.Int) (*types.Transaction, error) {
+	gas, err := transferGas(ctx, rpc, c, to)
+	if err != nil {
+		return nil, err
+	}
 	from := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	latest, err := number(ctx, rpc, "eth_getTransactionCount", from, "latest")
 	if err != nil {
@@ -159,14 +175,6 @@ func signedTransfer(ctx context.Context, rpc Chain, c Config, key *ecdsa.Private
 	}
 	if !latest.IsUint64() || latest.Cmp(pending) != 0 {
 		return nil, errors.New("SENDER_HAS_PENDING_TRANSACTION")
-	}
-	gas, err := number(ctx, rpc, "eth_gasPrice")
-	if err != nil {
-		return nil, err
-	}
-	maxGas, _ := Units(c.MaxGasPriceGwei, 9)
-	if gas.Sign() == 0 || gas.Cmp(maxGas) > 0 {
-		return nil, errors.New("GAS_PRICE_TOO_HIGH")
 	}
 	balance, err := number(ctx, rpc, "eth_getBalance", from, "pending")
 	if err != nil {

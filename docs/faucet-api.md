@@ -74,10 +74,21 @@ Recovery and policy details: [faucet handbook](handbook/faucet.md).
 ## Local operator status
 
 `usdb-explorer faucet status --limit N` adds live chain balances and bounded local
-claim/funding history for operators (default 20 per list, range 1–100). Decimal
+claim/funding/operator-transfer history (default 20 per list, range 1–100). Decimal
 USDB strings supplement integer atoms without changing existing amount fields.
 The worker snapshot and fresh chain observation are separate: an RPC failure is
 reported as `chain.status=unavailable` while local history remains available.
 This is a local command only; the public `/status` response and claim routes do
 not expose these history lists. Full field semantics are in the
 [faucet handbook](handbook/faucet.md#查看余额与最近申请).
+
+## Local directed transfers
+
+`usdb-explorer faucet transfer --from miner|faucet --to ADDRESS --amount USDB`
+creates a local operator payment. Miner transfers use a one-shot private key and
+share nonce gating with refills; faucet transfers enter the same serialized
+wallet worker as public claims. Operator faucet payments are separate from public
+claim quotas, but retain balance, fee, queue and outstanding-reservation checks.
+Their recovery receipts and `status.transfers` include `operation` and `source`.
+`transfer --retry --request-id ID` resumes the original request without a key.
+No transfer endpoint or signing method is added to the public API.

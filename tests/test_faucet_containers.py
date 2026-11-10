@@ -207,9 +207,9 @@ def exercise(image):
         assert report["claims"][0]["status"] == "confirmed" and report["claims"][0]["amount_usdb"] == "1"
         assert report["claims"][0]["created_at_utc"].endswith("Z")
         assert len(report["funding"]) == 1 and report["funding"][0]["id"] == "fixture-refill-2"
-        assert report["history"] == {"limit": 1, "funding_has_more": True, "claims_has_more": False}
+        assert report["history"] == {"limit": 1, "funding_has_more": True, "claims_has_more": False, "transfers_has_more": False}
         public = request("status")[1]
-        assert not any(key in public for key in ("chain", "claims", "funding", "history"))
+        assert not any(key in public for key in ("chain", "claims", "funding", "transfers", "history"))
         result = subprocess.run(["docker", "exec", container, "/faucet", "status", "--limit", "101"], capture_output=True, text=True, timeout=100)
         assert result.returncode == 1 and "INVALID_LIMIT" in result.stderr and not result.stdout.strip()
         # RPC failures keep the local records visible without inventing a live balance.
@@ -218,7 +218,50 @@ def exercise(image):
         unavailable = json.loads(docker("exec", container, "/faucet", "status", "--limit", "1"))
         assert unavailable["chain"]["status"] == "unavailable" and unavailable["chain"]["error"] == "RPC_REJECTED"
         assert "balance_usdb" not in unavailable["chain"] and len(unavailable["claims"]) == 1
-        print("Faucet container checks passed: non-root wallet, automatic refill confirmation, consecutive funding, funding recovery, nginx trust, durable claims, restart, live balances and bounded history.")
+        with fixture.mutex:
+            fixture.fail_method = ""
+            fixture.mined_hashes.add(job["transaction_hash"])
+            fixture.mined = False
+        # Directed miner transfers reuse the one-shot signing and nonce gate.
+        miner_command = ["docker", "exec", "-i", container, "/faucet", "transfer", "--from", "miner", "--to", "0x" + "33" * 20,
+                         "--amount", "5", "--request-id", "fixture-miner-transfer"]
+        result = subprocess.run(miner_command, input="0" * 63 + "1", capture_output=True, text=True, timeout=100)
+        assert result.returncode == 1 and "BROADCAST_UNCERTAIN" in result.stderr, result.stderr
+        directed = json.loads(result.stdout)
+        assert directed["source"] == "miner" and directed["operation"] == "transfer" and directed["address"] == "0x" + "33" * 20
+        command[-1] = "fund-blocked-by-directed"
+        result = subprocess.run(command, input="0" * 63 + "1", capture_output=True, text=True, timeout=100)
+        assert result.returncode == 1 and "TRANSFER_PENDING" in result.stderr and json.loads(result.stdout)["id"] == directed["id"]
+        def transfer_status(identifier):
+            status = json.loads(docker("exec", container, "/faucet", "status"))
+            return next((item for item in status["transfers"] if item["id"] == identifier), {})
+        with fixture.mutex:
+            fixture.mined_hashes.add(directed["transaction_hash"])
+            fixture.nonces["0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"] = 3
+        eventually(lambda: transfer_status(directed["id"]).get("status") == "confirmed")
+        # The operator queue needs no private-key input and uses the worker after a public claim.
+        wallet_command = ("exec", container, "/faucet", "transfer", "--from", "faucet", "--to", "0x" + "44" * 20,
+                          "--amount", "7", "--request-id", "fixture-wallet-transfer")
+        wallet_broadcast_start = len(fixture.sent)
+        manual = json.loads(docker(*wallet_command))
+        assert manual["status"] == "queued" and manual["source"] == "faucet" and manual["operation"] == "transfer"
+        assert json.loads(docker(*wallet_command))["id"] == manual["id"]
+        manual = eventually(lambda: (value if (value := transfer_status(manual["id"])).get("transaction_hash") else None))
+        eventually(lambda: len(fixture.sent) > wallet_broadcast_start)
+        before = len(fixture.sent)
+        wallet_raw = fixture.sent[wallet_broadcast_start]
+        docker("restart", "-t", "10", container)
+        eventually(lambda: len(fixture.sent) > before)
+        assert all(raw == wallet_raw for raw in fixture.sent[before:]), "manual recovery sent different transaction bytes"
+        with fixture.mutex:
+            fixture.mined_hashes.add(manual["transaction_hash"])
+            fixture.nonces[address.lower()] = 2
+        eventually(lambda: transfer_status(manual["id"]).get("status") == "confirmed")
+        final = json.loads(docker("exec", container, "/faucet", "status", "--limit", "1"))
+        assert final["transfers"][0]["id"] == manual["id"] and final["transfers"][0]["amount_usdb"] == "7"
+        assert final["history"]["transfers_has_more"] is True
+        assert final["faucet"]["reserved_atoms"] == report["faucet"]["reserved_atoms"], "operator transfer consumed public budget"
+        print("Faucet container checks passed: funding recovery, automatic confirmation, miner/wallet directed transfers, shared worker restart, public limits, live balances and bounded history.")
 
 
 if __name__ == "__main__":

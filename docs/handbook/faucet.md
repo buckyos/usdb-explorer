@@ -37,10 +37,10 @@ usdb-explorer faucet status
 
 首次部署尚未准备时使用 `prepare`，不加 `--replace`，也无需先 `down`。
 `faucet configure` 修改配置源并保留备份，不改变运行中的部署；支持 `--config`。
-`status`、`fund` 支持 `--state-dir`，用于选择不同的已准备部署。
+`status`、`fund`、`transfer` 支持 `--state-dir`，用于选择不同的已准备部署。
 
 服务首次启动自动生成专用账户。`faucet status` 显示地址、余额（整数 atoms，1 USDB =
-10^18 atoms，同时显示精确 USDB 金额）、状态、预算占用，以及最近的补款和领取申请记录。
+10^18 atoms，同时显示精确 USDB 金额）、状态、预算占用，以及最近的补款、领取申请和运维转账记录。
 余额不足时暂停新申请，补款后自动恢复。后台每轮（正常约 5 秒）自动核对补款回执，
 `faucet status` 显示最近记录的状态；达到配置确认数后自动记为 `confirmed`，无需手动确认。
 
@@ -66,12 +66,12 @@ IP 原文不写入账本，用与本钱包绑定的摘要计数。验证码、�
 ## 查看余额与最近申请
 
 ```bash
-usdb-explorer faucet status              # 默认最近 20 条领取、20 条补款
-usdb-explorer faucet status --limit 10   # 两类记录分别最多 10 条
+usdb-explorer faucet status              # 每类默认最近 20 条
+usdb-explorer faucet status --limit 10   # 领取、补款、运维转账各最多 10 条
 ```
 
 `--limit` 允许 1–100，记录按申请时间倒序排列，同一秒按写入顺序倒序。
-`history.claims_has_more` 和 `history.funding_has_more` 表示仍有更早的记录；只限制展示，不清理账本。
+`history.claims_has_more`、`history.funding_has_more` 和 `history.transfers_has_more` 表示各类仍有更早记录；只限制展示，不清理账本。
 
 | 输出 | 含义 |
 | --- | --- |
@@ -79,6 +79,7 @@ usdb-explorer faucet status --limit 10   # 两类记录分别最多 10 条
 | `chain` | 本次命令实时查询的链上信息；`balance_usdb` / `balance_atoms` 为指定区块的已入块余额，`pending_balance_usdb` / `pending_balance_atoms` 为节点 pending 状态估计；另有区块高度、哈希、`nonce`、`pending_nonce` 和查询时间 |
 | `claims` | 最近已持久化的领取申请，包含编号、收款地址、金额、UTC 时间、状态和已有的交易哈希；排队、等待确认、成功及失败记录都可见 |
 | `funding` | 最近的命令补款记录，包含可供恢复使用的编号和相同的金额／时间展示字段 |
+| `transfers` | 最近的运维定向转账，包含来源 `miner` / `faucet`、收款地址、金额、状态、交易哈希及恢复编号 |
 
 例如 `10989978999999853000` atoms 会显示为 `10.989978999999853` USDB；金额始终使用
 十进制字符串，不经过浮点数。`chain.balance_usdb` 是最新已入块状态，不能等同于配置确认深度
@@ -145,6 +146,50 @@ usdb-explorer faucet fund --retry --request-id refill-20260919-01
 RPC 失败、非规范链回执或确认不足不会被当作补款完成，也不会放行同一账户的新补款。
 没有后台自动补款调度。
 
+## 定向充值测试账户
+
+`fund` 始终用于向本实例水龙头补款。向指定测试账户转账使用 `transfer`，显式指定来源、
+收款地址和金额（十进制 USDB）：
+
+```bash
+# 外部／矿工账户 → 指定普通地址；终端隐藏输入该账户私钥
+usdb-explorer faucet transfer --from miner --to 0x收款地址 --amount 10
+
+# 本实例水龙头账户 → 指定普通地址；无需输入私钥
+usdb-explorer faucet transfer --from faucet --to 0x收款地址 --amount 10
+
+usdb-explorer faucet status --limit 10
+```
+
+将示例地址替换为完整的 `0x` 加 40 位十六进制地址。`miner` 表示临时提供私钥的外部账户，
+不要求账户实际挖矿；也可沿用 `--miner-key-env` 从环境变量读取，私钥仅通过 stdin 传入一次性命令。
+两种来源均只支持原生 USDB 的普通账户转账，不接受合约调用数据；仍需在已启用水龙头的部署上执行。
+
+运维水龙头转账**独立于公开领取的每日预算、地址冷却和 IP 限额**。队列会检查余额、保留
+`gas_reserve`，按 `max_gas_price_gwei` 预留交易费用，并保留其他未结束领取／转账已经预留的资金。
+它与公开领取共用最多 100 笔活动请求的队列，由同一个后台发送进程串行签名，避免 nonce 冲突。
+返回 `queued` 表示已持久化排队；交易哈希会在签名后出现在 `status.transfers` 中，确认过程自动跟踪。
+
+矿工定向转账与 `fund` 补款共用该矿工账户的待确认检查；上一笔尚未完成时返回
+`TRANSFER_PENDING` 或 `FUNDING_PENDING`，同时显示上一笔的 `operation`、来源和恢复编号。
+本次新请求不会提交，等待上一笔确认后再运行即可。余额、手续费、网络身份及回执确认要求
+与补款相同；异常恢复使用上一笔所属的 `fund` 或 `transfer` 命令。
+
+每次命令会先输出恢复编号，也可显式使用 `--request-id test-account-refill-01`。
+超时或连接中断后重试同一编号，不能换编号重复提交同一次付款：
+
+```bash
+usdb-explorer faucet transfer --retry --request-id test-account-refill-01
+```
+
+重试不需要私钥，也不接受 `--from`、`--to` 或 `--amount`。矿工来源会核对回执，必要时重播
+账本中的原签名交易；水龙头来源只返回原队列记录，由后台继续签名／恢复，CLI 不启动第二个发送进程。
+重复提交相同编号、来源、地址和金额只返回原申请；更换其中任意一项会报 `REQUEST_ID_CONFLICT`。
+所有记录保留在原水龙头卷中；升级／重启会继续处理。回退到不支持 `transfer` 的旧版本前，
+应先等待这些转账完成，旧版本不会处理新增的水龙头转账队列。
+
+定向转账仅存在于本地运维 CLI，不提供公网转账或任意签名接口。
+
 ## 部署、升级和备份
 
 水龙头使用 gateway 发布镜像中的独立 `/faucet` 程序，以非 root 身份运行。
@@ -187,6 +232,8 @@ usdb-explorer up
 | `NODE_SYNCING` | 等待节点同步 |
 | `BROADCAST_UNCERTAIN` | 结果不明；领取后台重试原交易，补款用原编号 `--retry` |
 | `SENDER_HAS_PENDING_TRANSACTION` | 等待已有交易，避免多个程序同时使用同一账户 |
+| `TRANSFER_PENDING` | 上一笔矿工定向转账仍待确认；查看 `transfers`，异常恢复用 `transfer --retry` |
+| `TRANSFER_NOT_FOUND` | 原转账未进入账本；核对编号，必要时使用原编号和原参数重新提交 |
 | `FUNDING_PENDING` | 上一笔仍待出块或确认；等待后台自动刷新，再提交新补款；异常恢复才使用上一笔编号 `--retry` |
 | `FUNDING_PENDING_USE_RETRY`（旧版本） | 旧版本需用 `faucet status` 找到未结束编号并 `--retry`；升级后自动核对 |
 | `NONCE_CONFLICT` / `NONCE_OR_STORAGE_CONFLICT` | 核查外部转账或深重组，保留账本和哈希，不清空重试 |

@@ -234,7 +234,7 @@ func (s *Service) Claim(ctx context.Context, id, recipient, ip string) (Job, err
 	if count >= s.config.IPDailyClaims {
 		return Job{}, errors.New("IP_DAILY_LIMIT")
 	}
-	if err = tx.QueryRow("SELECT COUNT(*) FROM jobs WHERE kind='claim' AND status IN ('queued','pending','confirming')").Scan(&active); err != nil {
+	if err = tx.QueryRow("SELECT COUNT(*) FROM jobs WHERE kind IN ('claim','faucet_transfer') AND status IN ('queued','pending','confirming')").Scan(&active); err != nil {
 		return Job{}, err
 	}
 	if active >= 100 {

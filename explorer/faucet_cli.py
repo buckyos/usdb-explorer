@@ -27,9 +27,9 @@ def history_limit(value):
 
 def add_parser(actions):
     """Keep all signing material off CLI arguments and out of prepared configuration."""
-    group = actions.add_parser("faucet", help="Configure, inspect or fund the optional testnet faucet")
+    group = actions.add_parser("faucet", help="Configure or inspect the optional testnet faucet and send operator transfers")
     commands = group.add_subparsers(dest="faucet_command", required=True)
-    for name in ("configure", "status", "fund"):
+    for name in ("configure", "status", "fund", "transfer"):
         action = commands.add_parser(name)
         action.add_argument("--state-dir", type=Path, default=Path.home() / ".config/usdb-public/default")
         if name == "configure":
@@ -41,9 +41,12 @@ def add_parser(actions):
                 action.add_argument("--" + key.replace("_", "-"), type=int if type(DEFAULTS.get(key)) is int else str)
         if name == "status":
             action.add_argument("--limit", type=history_limit, default=20,
-                                help="Recent claims and refills to display, each (default: 20, maximum: 100)")
-        if name == "fund":
-            action.add_argument("--amount", help="USDB to transfer from the miner account")
+                                help="Recent claims, refills and transfers to display, each (default: 20, maximum: 100)")
+        if name == "transfer":
+            action.add_argument("--from", dest="source", choices=("miner", "faucet"), help="Explicit source account for a new transfer")
+            action.add_argument("--to", help="Recipient USDB address")
+        if name in ("fund", "transfer"):
+            action.add_argument("--amount", help="USDB amount to transfer")
             action.add_argument("--request-id", help="Stable recovery ID; generated and printed if omitted")
             action.add_argument("--retry", action="store_true", help="Recover an uncertain or dropped transfer using the saved transaction; no private key needed")
             action.add_argument("--miner-key-env", metavar="NAME", help="Read and remove this variable from this process environment; default: hidden terminal input")
@@ -95,29 +98,40 @@ def execute(args, root):
     if args.faucet_command == "status" and args.limit != 20:
         options += ["--limit", str(args.limit)]
     private_key = ""
-    if args.faucet_command == "fund":
+    if args.faucet_command in ("fund", "transfer"):
+        directed = args.faucet_command == "transfer"
         if args.retry:
-            if not args.request_id or args.amount or args.miner_key_env:
-                raise ValueError("--retry requires --request-id and does not accept --amount or a private key")
-            options = ["retry", "--request-id", args.request_id]
+            if not args.request_id or args.amount or args.miner_key_env or (directed and (args.source or args.to)):
+                raise ValueError("--retry requires --request-id and does not accept transfer details or a private key")
+            options = (["transfer", "--retry"] if directed else ["retry"]) + ["--request-id", args.request_id]
         else:
             amount(args.amount)
-            if args.miner_key_env:
-                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", args.miner_key_env):
-                    raise ValueError("invalid private key environment variable name")
-                private_key = os.environ.pop(args.miner_key_env, "")
-            else:
-                if not sys.stdin.isatty():
-                    raise ValueError("hidden private-key input requires a terminal; use --miner-key-env for automation")
-                private_key = getpass.getpass("Miner private key (hidden, used once): ")
-            if not re.fullmatch(r"(?:0x)?[0-9a-fA-F]{64}", private_key.strip()):
-                raise ValueError("invalid miner private key format")
+            if directed:
+                if not args.source:
+                    raise ValueError("transfer requires --from miner or --from faucet")
+                if not args.to or not re.fullmatch(r"0x[0-9a-fA-F]{40}", args.to) or int(args.to, 16) == 0:
+                    raise ValueError("transfer requires a nonzero USDB --to address")
+                options += ["--from", args.source, "--to", args.to]
+                if args.source == "faucet" and args.miner_key_env:
+                    raise ValueError("--from faucet uses the managed wallet and does not accept a miner key")
+            if not directed or args.source == "miner":
+                if args.miner_key_env:
+                    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", args.miner_key_env):
+                        raise ValueError("invalid private key environment variable name")
+                    private_key = os.environ.pop(args.miner_key_env, "")
+                else:
+                    if not sys.stdin.isatty():
+                        raise ValueError("hidden private-key input requires a terminal; use --miner-key-env for automation")
+                    private_key = getpass.getpass("Miner private key (hidden, used once): ")
+                if not re.fullmatch(r"(?:0x)?[0-9a-fA-F]{64}", private_key.strip()):
+                    raise ValueError("invalid miner private key format")
             args.request_id = args.request_id or secrets.token_hex(16)
             options += ["--amount", args.amount, "--request-id", args.request_id]
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", args.request_id):
             raise ValueError("request ID must contain 1..80 letters, digits, underscores or hyphens")
-        print(f"Funding recovery ID: {args.request_id}", flush=True)
-        print("If the result is uncertain, retry this ID; do not create another funding request.", flush=True)
+        label = "Transfer" if directed else "Funding"
+        print(f"{label} recovery ID: {args.request_id}", flush=True)
+        print("If the result is uncertain, retry this ID; do not create another request for the same payment.", flush=True)
     cmd = ["docker", "compose", "--project-directory", str(root), "-f", str(root / "compose.json"),
            "exec", "-T", "faucet", "/faucet", *options]
     try:
@@ -135,17 +149,23 @@ def execute(args, root):
         if not isinstance(response, dict):
             raise ValueError("invalid faucet command response; inspect status before retrying")
         # Older signer images emit an empty Job on failures before persistence.
-        if args.faucet_command != "fund" or response.get("id"):
-            if result.returncode and code == "FUNDING_PENDING":
-                print("Previous funding is still awaiting confirmation:")
+        if args.faucet_command not in ("fund", "transfer") or response.get("id"):
+            if result.returncode and code in ("FUNDING_PENDING", "TRANSFER_PENDING"):
+                label = "funding" if code == "FUNDING_PENDING" else "transfer"
+                print(f"Previous {label} is still awaiting confirmation:")
             print(json.dumps(response, indent=2))
     if result.returncode:
-        if code == "FUNDING_PENDING":
-            raise ValueError("faucet command failed: FUNDING_PENDING; this new request was not submitted. "
-                             "Wait for automatic confirmation of the previous funding, then run fund again; "
-                             "inspect progress with faucet status. Use --retry only for recovery.")
-        raise ValueError(f"faucet command failed: {code}; use faucet status and the original funding recovery ID")
+        if code in ("FUNDING_PENDING", "TRANSFER_PENDING"):
+            raise ValueError(f"faucet command failed: {code}; this new request was not submitted. "
+                             "Wait for automatic confirmation of the previous transaction, then submit again; "
+                             "inspect progress with faucet status. Use the matching fund/transfer --retry only for recovery.")
+        raise ValueError(f"faucet command failed: {code}; use faucet status and the original operation recovery ID")
     if args.faucet_command == "fund" and response and response.get("status") in ("pending", "confirming"):
         print("Funding submitted; confirmation is tracked automatically. Check progress with faucet status; "
               "--retry is only needed for recovery.")
+    if args.faucet_command == "transfer" and response:
+        if response.get("status") == "queued":
+            print("Transfer queued; the faucet worker signs and confirms it automatically. Check progress with faucet status.")
+        elif response.get("status") in ("pending", "confirming"):
+            print("Transfer submitted; confirmation is tracked automatically. Check progress with faucet status.")
     return 0

@@ -117,9 +117,9 @@ func (s *Service) Refresh(ctx context.Context) error {
 	return nil
 }
 
-// Step handles at most one claim, always persisting signed bytes before their first broadcast.
+// Step serializes public claims and operator transfers from the faucet wallet, persisting before broadcast.
 func (s *Service) Step(ctx context.Context) error {
-	j, err := scanJob(s.db.QueryRow("SELECT " + jobColumns + " FROM jobs WHERE kind='claim' AND status IN ('queued','pending','confirming') ORDER BY CASE WHEN raw='' THEN 1 ELSE 0 END,created,id LIMIT 1"))
+	j, err := scanJob(s.db.QueryRow("SELECT " + jobColumns + " FROM jobs WHERE kind IN ('claim','faucet_transfer') AND status IN ('queued','pending','confirming') ORDER BY CASE WHEN raw='' THEN 1 ELSE 0 END,created,rowid LIMIT 1"))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -128,6 +128,9 @@ func (s *Service) Step(ctx context.Context) error {
 	}
 	if err = identity(ctx, s.rpc, s.config); err != nil {
 		return err
+	}
+	if j.Sender != s.sender() {
+		return errors.New("LEDGER_INVALID")
 	}
 	if j.Raw == "" {
 		to, _ := address(j.Address)
@@ -252,86 +255,12 @@ func (s *Service) Run(ctx context.Context) {
 	}
 }
 
-// Fund signs a single operator-requested refill, or reuses the exact journaled transaction for this ID.
+// Fund signs an operator-requested refill of this deployment's faucet account.
 func (s *Service) Fund(ctx context.Context, id, amountText, keyText string) (Job, error) {
-	if !fundingID.MatchString(id) {
-		return Job{}, errors.New("INVALID_REQUEST_ID")
-	}
-	amount, err := Units(amountText, 18)
-	if err != nil {
-		return Job{}, err
-	}
-	key, err := crypto.HexToECDSA(strings.TrimPrefix(strings.TrimSpace(keyText), "0x"))
-	if err != nil {
-		return Job{}, errors.New("INVALID_PRIVATE_KEY")
-	}
-	defer key.D.SetInt64(0)
-	sender := crypto.PubkeyToAddress(key.PublicKey).Hex()
-	if sender == s.sender() {
-		return Job{}, errors.New("FUNDING_REQUIRES_DIFFERENT_ACCOUNT")
-	}
-	id = "f_" + id
-	if old, e := s.job(id); e == nil {
-		if old.Sender != sender || old.Amount != amount.String() {
-			return Job{}, errors.New("REQUEST_ID_CONFLICT")
-		}
-		return s.RetryFund(ctx, strings.TrimPrefix(id, "f_"))
-	} else if !errors.Is(e, sql.ErrNoRows) {
-		return Job{}, errors.New("STORAGE_UNAVAILABLE")
-	}
-	// A mined refill may still be pending in an older ledger or between worker
-	// cycles. Reconcile it before allocating a nonce for this independent request.
-	if err := s.refreshFunding(ctx, sender); err != nil {
-		return Job{}, err
-	}
-	if pending, err := fundingBlocker(s.db.QueryRowContext(ctx, activeFundingQuery+" AND sender=? LIMIT 1", sender)); err != nil {
-		return pending, err
-	}
-	to, _ := address(s.sender())
-	signed, err := signedTransfer(ctx, s.rpc, s.config, key, to, amount)
-	if err != nil {
-		return Job{}, err
-	}
-	raw, err := signed.MarshalBinary()
-	if err != nil {
-		return Job{}, errors.New("SIGNING_FAILED")
-	}
-	j := Job{ID: id, Kind: "fund", Address: s.sender(), Sender: sender, Amount: amount.String(), Reserved: "0", Day: s.now().UTC().Format("2006-01-02"), Created: s.now().Unix(), Status: "pending", Raw: "0x" + hex.EncodeToString(raw), Hash: signed.Hash().Hex(), Nonce: sql.NullString{String: nonceText(signed.Nonce()), Valid: true}}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return Job{}, errors.New("STORAGE_UNAVAILABLE")
-	}
-	defer tx.Rollback()
-	// Another operator process can start a refill while this one signs. Keep the
-	// sender gate inside the write transaction as well as the earlier fast path.
-	if pending, err := fundingBlocker(tx.QueryRowContext(ctx, activeFundingQuery+" AND sender=? LIMIT 1", sender)); err != nil {
-		return pending, err
-	}
-	if err = insertJob(tx, j); err != nil {
-		return Job{}, errors.New("NONCE_OR_REQUEST_CONFLICT")
-	}
-	if err = tx.Commit(); err != nil {
-		return Job{}, errors.New("STORAGE_UNAVAILABLE")
-	}
-	return s.RetryFund(ctx, strings.TrimPrefix(id, "f_"))
+	return s.externalTransfer(ctx, "fund", id, s.sender(), amountText, keyText)
 }
 
-// RetryFund reconciles or rebroadcasts saved funding bytes without asking for the miner key again.
+// RetryFund recovers the same journaled refill without asking for the miner key again.
 func (s *Service) RetryFund(ctx context.Context, id string) (Job, error) {
-	if !fundingID.MatchString(id) {
-		return Job{}, errors.New("INVALID_REQUEST_ID")
-	}
-	j, err := s.job("f_" + id)
-	if err != nil {
-		return Job{}, errors.New("FUNDING_NOT_FOUND")
-	}
-	if err = identity(ctx, s.rpc, s.config); err != nil {
-		return j, err
-	}
-	err = s.resume(ctx, j)
-	if current, e := s.job(j.ID); e == nil {
-		j = current
-	}
-	j.ID = id
-	return j, err
+	return s.retryExternal(ctx, "fund", id)
 }

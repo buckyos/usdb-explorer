@@ -1,0 +1,28 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-faucet-directed-transfers",
+  "type": "added",
+  "scopes": [
+    "gateway",
+    "deployment",
+    "documentation",
+    "testing"
+  ],
+  "summary": "增加矿工或水龙头账户向指定测试账户的运维转账命令",
+  "details": [
+    "新增 faucet transfer --from miner|faucet --to ADDRESS --amount USDB；矿工来源隐藏输入一次性私钥，水龙头来源使用本实例钱包并进入持久化发送队列。",
+    "水龙头运维转账独立于公开领取的预算、冷却和 IP 限额，仍检查余额、手续费及其他活动请求的资金预留，并与领取共用发送进程和活动队列上限。",
+    "矿工定向转账与 fund 补款共用账户 nonce 和未确认交易检查；后台自动观察确认，transfer --retry 使用同一恢复编号处理异常，水龙头转账由后台恢复。",
+    "status 新增受 --limit 限制的 transfers 列表及来源、操作类型；重复编号不得更换来源、地址或金额，不增加公共转账／签名接口。"
+  ],
+  "operator_actions": [
+    "安装新版本后执行 down、prepare --replace、preflight、up、check 应用新容器并保留原水龙头卷；回退旧版前先等待运维转账完成。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": true
+  },
+  "references": []
+}

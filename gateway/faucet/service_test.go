@@ -408,7 +408,7 @@ func TestHTTPTrustLimitsAndPrivateSurface(t *testing.T) {
 	if w := request("GET", "/api/faucet/v1/claims/c_http-request-012345", "", s.config.ProxyToken, "192.0.2.1"); w.Code != 200 || strings.Contains(w.Body.String(), "sender") {
 		t.Fatal(w.Body.String())
 	}
-	for _, path := range []string{"/api/faucet/v1/fund", "/api/faucet/v1/claims/f_refill", "/wallet.key"} {
+	for _, path := range []string{"/api/faucet/v1/fund", "/api/faucet/v1/transfer", "/api/faucet/v1/transfers", "/api/faucet/v1/claims/t_manual", "/api/faucet/v1/claims/f_refill", "/wallet.key"} {
 		if w := request("GET", path, "", s.config.ProxyToken, "192.0.2.1"); w.Code != 404 {
 			t.Fatal(path, w.Code)
 		}

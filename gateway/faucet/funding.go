@@ -7,16 +7,16 @@ import (
 	"strings"
 )
 
-const activeFundingQuery = "SELECT " + jobColumns + " FROM jobs WHERE kind='fund' AND status NOT IN ('confirmed','failed')"
+const activeExternalQuery = "SELECT " + jobColumns + " FROM jobs WHERE kind IN ('fund','miner_transfer') AND status NOT IN ('confirmed','failed')"
 
-// RefreshFunding observes saved refills without signing or rebroadcasting miner transactions.
+// RefreshFunding observes saved refills and miner transfers without signing or rebroadcasting.
 // Explicit retry remains available when an operator needs to resend journaled bytes.
 func (s *Service) RefreshFunding(ctx context.Context) error {
 	return s.refreshFunding(ctx, "")
 }
 
 func (s *Service) refreshFunding(ctx context.Context, sender string) error {
-	query := activeFundingQuery
+	query := activeExternalQuery
 	args := []any{}
 	if sender != "" {
 		query += " AND sender=?"
@@ -69,6 +69,14 @@ func fundingBlocker(row scanner) (Job, error) {
 	if err != nil {
 		return Job{}, errors.New("STORAGE_UNAVAILABLE")
 	}
-	j.ID = strings.TrimPrefix(j.ID, "f_")
-	return j, errors.New("FUNDING_PENDING")
+	code := "FUNDING_PENDING"
+	if j.Kind == "miner_transfer" {
+		code = "TRANSFER_PENDING"
+	}
+	prefix := "f_"
+	if j.Kind == "miner_transfer" {
+		prefix = "t_"
+	}
+	j.ID = strings.TrimPrefix(j.ID, prefix)
+	return j, errors.New(code)
 }

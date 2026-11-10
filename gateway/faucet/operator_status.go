@@ -16,7 +16,7 @@ const (
 )
 
 type operatorJob struct {
-	Job
+	OperatorReceipt
 	AmountUSDB   string `json:"amount_usdb"`
 	CreatedAtUTC string `json:"created_at_utc"`
 }
@@ -77,6 +77,10 @@ func (s *Service) OperatorStatus(ctx context.Context, live Status, limit int) (m
 	if err != nil {
 		return nil, err
 	}
+	transfers, transfersMore, err := s.recentJobs(ctx, "transfer", limit)
+	if err != nil {
+		return nil, err
+	}
 	// Report RPC failures alongside the ledger, not as a fabricated zero balance
 	// or a replacement for the running worker's health (for example NONCE_CONFLICT).
 	chainCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -88,15 +92,21 @@ func (s *Service) OperatorStatus(ctx context.Context, live Status, limit int) (m
 	chain["checked_at"] = s.now().Unix()
 	chain["checked_at_utc"] = s.now().UTC().Format(time.RFC3339)
 	return map[string]any{
-		"faucet": worker, "chain": chain, "funding": funding, "claims": claims,
-		"history": map[string]any{"limit": limit, "funding_has_more": fundingMore, "claims_has_more": claimsMore},
+		"faucet": worker, "chain": chain, "funding": funding, "claims": claims, "transfers": transfers,
+		"history": map[string]any{"limit": limit, "funding_has_more": fundingMore, "claims_has_more": claimsMore, "transfers_has_more": transfersMore},
 	}, nil
 }
 
 func (s *Service) recentJobs(ctx context.Context, kind string, limit int) ([]operatorJob, bool, error) {
 	// Row ID breaks same-second ties by insertion order; LIMIT also bounds SQL
 	// work returned to the process instead of loading the entire ledger first.
-	rows, err := s.db.QueryContext(ctx, "SELECT "+jobColumns+" FROM jobs WHERE kind=? ORDER BY created DESC,rowid DESC LIMIT ?", kind, limit+1)
+	predicate := "kind=?"
+	args := []any{kind, limit + 1}
+	if kind == "transfer" {
+		predicate = "kind IN ('miner_transfer','faucet_transfer')"
+		args = []any{limit + 1}
+	}
+	rows, err := s.db.QueryContext(ctx, "SELECT "+jobColumns+" FROM jobs WHERE "+predicate+" ORDER BY created DESC,rowid DESC LIMIT ?", args...)
 	if err != nil {
 		return nil, false, errors.New("STORAGE_UNAVAILABLE")
 	}
@@ -110,14 +120,17 @@ func (s *Service) recentJobs(ctx context.Context, kind string, limit int) ([]ope
 		if err != nil {
 			return nil, false, errors.New("STORAGE_UNAVAILABLE")
 		}
-		if kind == "fund" {
+		if j.Kind == "fund" {
 			j.ID = strings.TrimPrefix(j.ID, "f_")
+		}
+		if j.Kind == "miner_transfer" || j.Kind == "faucet_transfer" {
+			j.ID = strings.TrimPrefix(j.ID, "t_")
 		}
 		amount, err := formatAtoms(j.Amount)
 		if err != nil {
 			return nil, false, err
 		}
-		jobs = append(jobs, operatorJob{Job: j, AmountUSDB: amount, CreatedAtUTC: time.Unix(j.Created, 0).UTC().Format(time.RFC3339)})
+		jobs = append(jobs, operatorJob{OperatorReceipt: DescribeJob(j), AmountUSDB: amount, CreatedAtUTC: time.Unix(j.Created, 0).UTC().Format(time.RFC3339)})
 	}
 	if rows.Err() != nil {
 		return nil, false, errors.New("STORAGE_UNAVAILABLE")

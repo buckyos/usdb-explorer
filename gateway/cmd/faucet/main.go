@@ -20,13 +20,16 @@ import (
 
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("expected serve, status, fund or retry")
+		return errors.New("expected serve, status, fund, transfer or retry")
 	}
 	action := os.Args[1]
 	flags := flag.NewFlagSet(action, flag.ContinueOnError)
-	id := flags.String("request-id", "", "Funding recovery ID")
+	id := flags.String("request-id", "", "Operation recovery ID")
 	amount := flags.String("amount", "", "USDB amount")
-	limit := flags.Int("limit", faucet.DefaultStatusLimit, "Recent claims and refills to show (1..100)")
+	source := flags.String("from", "", "Transfer source: miner or faucet")
+	to := flags.String("to", "", "Recipient address for an operator transfer")
+	retry := flags.Bool("retry", false, "Recover the same directed transfer")
+	limit := flags.Int("limit", faucet.DefaultStatusLimit, "Recent claims, refills and transfers to show, each (1..100)")
 	if err := flags.Parse(os.Args[2:]); err != nil {
 		return errors.New("invalid command options")
 	}
@@ -108,6 +111,29 @@ func run() error {
 		}
 		_ = json.NewEncoder(os.Stdout).Encode(value)
 		return nil
+	case "transfer":
+		var j faucet.Job
+		var err error
+		if *retry {
+			if *source != "" || *to != "" || *amount != "" {
+				return errors.New("INVALID_CONFIG")
+			}
+			j, err = s.RetryTransfer(ctx, *id)
+		} else {
+			key := []byte{}
+			if *source == "miner" {
+				key, err = io.ReadAll(io.LimitReader(os.Stdin, 256))
+				if err != nil || len(key) > 128 {
+					return errors.New("INVALID_PRIVATE_KEY")
+				}
+				defer clear(key)
+			}
+			j, err = s.Transfer(ctx, *source, *id, *to, *amount, string(key))
+		}
+		if j.ID != "" {
+			_ = json.NewEncoder(os.Stdout).Encode(faucet.DescribeJob(j))
+		}
+		return err
 	case "fund":
 		// The key arrives only on stdin, never in process arguments or container environment.
 		key, err := io.ReadAll(io.LimitReader(os.Stdin, 256))
@@ -117,17 +143,17 @@ func run() error {
 		defer clear(key)
 		j, err := s.Fund(ctx, *id, *amount, string(key))
 		if j.ID != "" {
-			_ = json.NewEncoder(os.Stdout).Encode(j)
+			_ = json.NewEncoder(os.Stdout).Encode(faucet.DescribeJob(j))
 		}
 		return err
 	case "retry":
 		j, err := s.RetryFund(ctx, *id)
 		if j.ID != "" {
-			_ = json.NewEncoder(os.Stdout).Encode(j)
+			_ = json.NewEncoder(os.Stdout).Encode(faucet.DescribeJob(j))
 		}
 		return err
 	default:
-		return errors.New("expected serve, status, fund or retry")
+		return errors.New("expected serve, status, fund, transfer or retry")
 	}
 }
 

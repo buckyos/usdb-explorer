@@ -202,5 +202,56 @@ class FaucetDeploymentTests(unittest.TestCase):
                 run.assert_not_called()
 
 
+
+    def test_directed_miner_transfer_keeps_key_off_arguments_and_config(self):
+        self.enable()
+        key = "ab" * 32
+        address = "0x" + "11" * 20
+        args = self.args("transfer", "--from", "miner", "--to", address, "--amount", "5", "--request-id", "manual-miner", "--miner-key-env", "FAUCET_TEST_KEY")
+        def run(command, **kwargs):
+            self.assertNotIn("FAUCET_TEST_KEY", os.environ)
+            self.assertEqual(kwargs["input"], key)
+            self.assertNotIn(key, str(command))
+            self.assertEqual(command[-9:], ["transfer", "--from", "miner", "--to", address, "--amount", "5", "--request-id", "manual-miner"])
+            return subprocess.CompletedProcess(command, 0, '{"id":"manual-miner","status":"pending"}', "")
+        output = io.StringIO()
+        with mock.patch.dict(os.environ, {"FAUCET_TEST_KEY": key}), mock.patch.object(CLI.subprocess, "run", side_effect=run), contextlib.redirect_stdout(output):
+            self.assertEqual(PUBLIC.execute(args, self.state), 0)
+        self.assertNotIn(key, output.getvalue())
+        self.assertIn("Transfer recovery ID: manual-miner", output.getvalue())
+        self.assertIn("confirmation is tracked automatically", output.getvalue())
+
+    def test_faucet_transfer_and_recovery_do_not_prompt_for_keys(self):
+        self.enable()
+        address = "0x" + "11" * 20
+        for arguments in (("--from", "faucet", "--to", address, "--amount", "5"), ("--retry",)):
+            args = self.args("transfer", *arguments, "--request-id", "manual-wallet")
+            with mock.patch.object(CLI.getpass, "getpass", side_effect=AssertionError("unexpected key prompt")), mock.patch.object(CLI.subprocess, "run") as run, contextlib.redirect_stdout(io.StringIO()) as output:
+                run.return_value = subprocess.CompletedProcess([], 0, '{"id":"manual-wallet","status":"queued"}', "")
+                self.assertEqual(PUBLIC.execute(args, self.state), 0)
+                self.assertEqual(run.call_args.kwargs["input"], "")
+                command = run.call_args.args[0]
+                if arguments == ("--retry",):
+                    self.assertEqual(command[-4:], ["transfer", "--retry", "--request-id", "manual-wallet"])
+                self.assertIn("Transfer queued", output.getvalue())
+
+    def test_directed_transfer_rejects_ambiguous_or_invalid_arguments_before_docker(self):
+        self.enable()
+        address = "0x" + "11" * 20
+        cases = [
+            ("--to", address, "--amount", "1"),
+            ("--from", "faucet", "--amount", "1"),
+            ("--from", "faucet", "--to", "0x" + "00" * 20, "--amount", "1"),
+            ("--from", "faucet", "--to", address, "--amount", "0"),
+            ("--from", "faucet", "--to", address, "--amount", "1", "--miner-key-env", "UNUSED_KEY"),
+            ("--retry", "--request-id", "manual", "--from", "faucet"),
+        ]
+        for options in cases:
+            with self.subTest(options=options), mock.patch.object(CLI.subprocess, "run") as run, mock.patch.object(CLI.getpass, "getpass", side_effect=AssertionError("unexpected key prompt")):
+                with self.assertRaises(ValueError):
+                    PUBLIC.execute(self.args("transfer", *options), self.state)
+                run.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
