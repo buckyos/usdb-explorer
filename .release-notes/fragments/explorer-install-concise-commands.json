@@ -1,0 +1,24 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-install-concise-commands",
+  "type": "changed",
+  "scopes": [
+    "deployment",
+    "documentation",
+    "testing"
+  ],
+  "summary": "安装后的操作提示省略默认参数并优先使用简短命令",
+  "details": [
+    "后续命令省略默认配置和状态目录参数，保留自定义路径、shell 引号及升级所需的 --replace。",
+    "仅当 PATH 中的同名命令指向本次安装入口时使用简短命令；未找到或被其他安装覆盖时保留绝对路径。",
+    "首次安装、升级、同版本重装和异常状态的操作顺序保持不变，仅简化提示，不执行命令或更改部署。"
+  ],
+  "operator_actions": [],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": false
+  },
+  "references": []
+}

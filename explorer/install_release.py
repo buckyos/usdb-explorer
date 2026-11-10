@@ -104,13 +104,21 @@ def guidance_metadata(path):
 
 def installation_guidance(launcher, config_file, state_dir, destination, *, created_config):
     """Choose post-install commands from local metadata only; never inspect or operate Docker."""
+    # Short commands must still select this installation when PATH contains another copy.
+    found = shutil.which(launcher.name)
+    executable = launcher.name if found and Path(found).resolve() == launcher.resolve() else str(launcher)
+    default_config = Path.home() / ".config/usdb-public/config.json"
+    default_state = Path.home() / ".config/usdb-public/default"
+
     def command(action, *, replace=False):
-        args = [str(launcher), action]
+        args = [executable, action]
         if replace:
             args.append("--replace")
-        if action in {"setup", "prepare"}:
+        if action in {"setup", "prepare"} and config_file != default_config:
             args += ["--config", str(config_file)]
-        return "  " + shlex.join([*args, "--state-dir", str(state_dir)])
+        if state_dir != default_state.resolve():
+            args += ["--state-dir", str(state_dir)]
+        return "  " + shlex.join(args)
 
     lines = [f"Deployment directory: {state_dir}",
              "Running services: not checked; installing the tool does not apply a deployment."]

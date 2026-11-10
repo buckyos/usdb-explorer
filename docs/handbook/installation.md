@@ -66,7 +66,9 @@ usdb-explorer --help
 `prepare --replace`。安装器不查询 Docker，不据此宣称容器已更新或服务健康。
 
 自定义部署在安装命令后追加 `--config-file /实际配置/config.json --state-dir /实际部署目录`。
-`--state-dir` 只用于识别后续操作，不创建或更改部署；所有输出命令会带上选定路径并处理 shell 引号。
+`--state-dir` 只用于识别后续操作，不创建或更改部署。提示省略默认的 `--config`、`--state-dir`，
+保留自定义路径及 `--replace` 等必要参数，并处理 shell 引号。当前 PATH 能找到本次安装的入口时，
+显示 `usdb-explorer down` 等简短命令；入口未在 PATH 中或被其他同名命令优先匹配时，保留绝对路径。
 默认仍为 `~/.config/usdb-public/default`，不会根据 `--config-file` 的父目录猜测，也不会扫描其他部署。
 此参数和提示随包含改动的新安装脚本发布，不会改写已有版本的安装附件。
 

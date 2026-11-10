@@ -173,8 +173,8 @@ class PublicInstallerTests(unittest.TestCase):
         return {str(p.relative_to(state)): p.read_bytes() for p in state.rglob("*") if p.is_file()}
 
     def next_commands(self, output):
-        prefix = "  " + shlex.quote(str(self.commands / "usdb-explorer")) + " "
-        return [shlex.split(line.strip()) for line in output.splitlines() if line.startswith(prefix)]
+        prefixes = ("  usdb-explorer ", "  " + shlex.quote(str(self.commands / "usdb-explorer")) + " ")
+        return [shlex.split(line.strip()) for line in output.splitlines() if line.startswith(prefixes)]
 
     def test_upgrade_of_prepared_deployment_prints_replacement_steps_without_mutation(self):
         self.assertEqual(self.run_installer().returncode, 0)
@@ -189,10 +189,62 @@ class PublicInstallerTests(unittest.TestCase):
             self.assertIn("--replace", commands[1])
             self.assertEqual(commands[1][commands[1].index("--config") + 1], str(self.config))
             for command in commands:
-                self.assertEqual(command[command.index("--state-dir") + 1], str(self.state))
+                self.assertNotIn("--state-dir", command)
+                self.assertEqual(command[0], str(self.commands / "usdb-explorer"))
             self.assertEqual(self.config.read_bytes(), source)
             self.assertEqual({str(p.relative_to(self.state)): p.read_bytes()
                               for p in self.state.rglob("*") if p.is_file()}, before)
+
+    def test_default_paths_print_runnable_short_commands_for_install_and_upgrade(self):
+        self.commands = self.home / ".local/bin"
+        self.config = self.home / ".config/usdb-public/config.json"
+        self.env["PATH"] = str(self.commands) + os.pathsep + self.env["PATH"]
+        result = self.run_installer(process_substitution=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = self.next_commands(result.stdout)
+        self.assertEqual(commands, [["usdb-explorer", action]
+                                    for action in ("setup", "prepare", "preflight", "up", "check")])
+        prepared = subprocess.run(commands[1], cwd=self.root, env=self.env, text=True,
+                                  capture_output=True, timeout=10)
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertTrue((self.state / "deployment.json").is_file())
+        self.make_release("0.2.0")
+        result = self.run_installer("0.2.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.next_commands(result.stdout), [
+            ["usdb-explorer", "down"], ["usdb-explorer", "prepare", "--replace"],
+            ["usdb-explorer", "preflight"], ["usdb-explorer", "up"], ["usdb-explorer", "check"],
+        ])
+
+    def test_default_config_with_custom_state_keeps_only_state_argument(self):
+        self.config = self.home / ".config/usdb-public/config.json"
+        self.env["PATH"] = str(self.commands) + os.pathsep + self.env["PATH"]
+        selected = self.root / "deployment's state"
+        result = self.run_installer(extra=("--state-dir", str(selected)))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = self.next_commands(result.stdout)
+        self.assertEqual(commands, [["usdb-explorer", action, "--state-dir", str(selected)]
+                                    for action in ("setup", "prepare", "preflight", "up", "check")])
+        prepared = subprocess.run(commands[1], cwd=self.root, env=self.env, text=True,
+                                  capture_output=True, timeout=10)
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertTrue((selected / "deployment.json").is_file())
+        self.assertFalse(self.state.exists())
+
+    def test_shadowed_command_keeps_installed_absolute_path(self):
+        shadow = self.stub_bin / "usdb-explorer"
+        shadow.write_text("#!/bin/sh\nexit 1\n")
+        shadow.chmod(0o755)
+        self.env["PATH"] = str(self.stub_bin) + os.pathsep + str(self.commands) + os.pathsep + self.env["PATH"]
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = self.next_commands(result.stdout)
+        self.assertEqual(len(commands), 5)
+        self.assertTrue(all(command[0] == str(self.commands / "usdb-explorer") for command in commands))
+        prepared = subprocess.run(commands[1], cwd=self.root, env=self.env, text=True,
+                                  capture_output=True, timeout=10)
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertTrue((self.state / "deployment.json").is_file())
 
     def test_same_prepared_release_reinstall_recommends_inspection_without_replacement(self):
         self.assertEqual(self.run_installer().returncode, 0)
