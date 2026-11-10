@@ -66,4 +66,7 @@ also apply to status reads (120/minute), IPv6 uses a /64 grouping, and handlers
 have a 32-request concurrency bound. There is no cross-origin CORS permission.
 Do not publish the private signer port or copy the ingress token into frontend
 configuration. Funding is available only through local operator commands, never
-through this API. Recovery and policy details: [faucet handbook](handbook/faucet.md).
+through this API. Recorded refills are automatically checked for canonical confirmation;
+new funding commands also reconcile the sender's outstanding refill first. Explicit retry
+is only needed to recover uncertain or dropped transfers, not to confirm normal deposits.
+Recovery and policy details: [faucet handbook](handbook/faucet.md).

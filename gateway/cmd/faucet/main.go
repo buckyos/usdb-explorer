@@ -113,11 +113,15 @@ func run() error {
 		}
 		defer clear(key)
 		j, err := s.Fund(ctx, *id, *amount, string(key))
-		_ = json.NewEncoder(os.Stdout).Encode(j)
+		if j.ID != "" {
+			_ = json.NewEncoder(os.Stdout).Encode(j)
+		}
 		return err
 	case "retry":
 		j, err := s.RetryFund(ctx, *id)
-		_ = json.NewEncoder(os.Stdout).Encode(j)
+		if j.ID != "" {
+			_ = json.NewEncoder(os.Stdout).Encode(j)
+		}
 		return err
 	default:
 		return errors.New("expected serve, status, fund or retry")

@@ -30,7 +30,7 @@ def add_parser(actions):
         if name == "fund":
             action.add_argument("--amount", help="USDB to transfer from the miner account")
             action.add_argument("--request-id", help="Stable recovery ID; generated and printed if omitted")
-            action.add_argument("--retry", action="store_true", help="Reconcile or resend the saved transaction, without a private key")
+            action.add_argument("--retry", action="store_true", help="Recover an uncertain or dropped transfer using the saved transaction; no private key needed")
             action.add_argument("--miner-key-env", metavar="NAME", help="Read and remove this variable from this process environment; default: hidden terminal input")
 
 
@@ -107,13 +107,28 @@ def execute(args, root):
         result = subprocess.run(cmd, input=private_key, capture_output=True, text=True, timeout=110)
     finally:
         private_key = ""
+    match = re.search(r"Faucet operation failed: ([A-Z_]+)\s*$", result.stderr)
+    code = match.group(1) if match else "CONTAINER_UNAVAILABLE"
+    response = None
     if result.stdout.strip():
         try:
-            print(json.dumps(json.loads(result.stdout), indent=2))
+            response = json.loads(result.stdout)
         except ValueError:
             raise ValueError("invalid faucet command response; inspect status before retrying") from None
+        if not isinstance(response, dict):
+            raise ValueError("invalid faucet command response; inspect status before retrying")
+        # Older signer images emit an empty Job on failures before persistence.
+        if args.faucet_command != "fund" or response.get("id"):
+            if result.returncode and code == "FUNDING_PENDING":
+                print("Previous funding is still awaiting confirmation:")
+            print(json.dumps(response, indent=2))
     if result.returncode:
-        match = re.search(r"Faucet operation failed: ([A-Z_]+)\s*$", result.stderr)
-        code = match.group(1) if match else "CONTAINER_UNAVAILABLE"
+        if code == "FUNDING_PENDING":
+            raise ValueError("faucet command failed: FUNDING_PENDING; this new request was not submitted. "
+                             "Wait for automatic confirmation of the previous funding, then run fund again; "
+                             "inspect progress with faucet status. Use --retry only for recovery.")
         raise ValueError(f"faucet command failed: {code}; use faucet status and the original funding recovery ID")
+    if args.faucet_command == "fund" and response and response.get("status") in ("pending", "confirming"):
+        print("Funding submitted; confirmation is tracked automatically. Check progress with faucet status; "
+              "--retry is only needed for recovery.")
     return 0

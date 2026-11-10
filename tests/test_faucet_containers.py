@@ -28,6 +28,7 @@ class ChainFixture:
     def __init__(self):
         self.balance = "0x0"
         self.mined = False
+        self.mined_hashes = set()
         self.nonces = {}
         self.sent = []
         self.mutex = threading.Lock()
@@ -42,7 +43,7 @@ class ChainFixture:
                 result = {"hash": "0x" + ("a" if params[0] == "0x0" else "c") * 64}
             elif method == "eth_getTransactionReceipt":
                 result = {"transactionHash": params[0], "blockHash": "0x" + "c" * 64,
-                          "blockNumber": "0xa", "status": "0x1"} if self.mined else None
+                          "blockNumber": "0xa", "status": "0x1"} if self.mined or params[0] in self.mined_hashes else None
             elif method == "eth_getTransactionByHash":
                 result = None
             elif method == "eth_getTransactionCount":
@@ -146,10 +147,34 @@ def exercise(image):
         result = subprocess.run(retry, capture_output=True, text=True, timeout=100)
         assert json.loads(result.stdout)["transaction_hash"] == funded["transaction_hash"]
         assert len(fixture.sent) == 2 and fixture.sent[0] == fixture.sent[1]
-        fixture.mined = True
-        fixture.nonces["0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"] = 1
-        assert json.loads(subprocess.check_output(retry, text=True))["status"] == "confirmed"
-        fixture.mined = False
+        # Confirmation is observed by the worker after restart, without retry.
+        with fixture.mutex:
+            fixture.mined_hashes.add(funded["transaction_hash"])
+            fixture.nonces["0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"] = 1
+        docker("restart", "-t", "10", container)
+        def funding_confirmed(identifier):
+            status = json.loads(docker("exec", container, "/faucet", "status"))
+            return any(item["id"] == identifier and item["status"] == "confirmed" for item in status["funding"])
+        eventually(lambda: funding_confirmed("fixture-refill"))
+        assert len(fixture.sent) == 2, "receipt refresh rebroadcast the refill"
+        # An independent refill now reaches broadcast, without a manual confirmation step.
+        command[-1] = "fixture-refill-2"
+        result = subprocess.run(command, input="0" * 63 + "1", capture_output=True, text=True, timeout=100)
+        assert result.returncode == 1 and "BROADCAST_UNCERTAIN" in result.stderr, result.stderr
+        second = json.loads(result.stdout)
+        assert second["transaction_hash"] != funded["transaction_hash"] and len(fixture.sent) == 3
+        # Pending errors identify the previous transfer; failures before a job exists emit no empty JSON.
+        command[-1] = "fixture-refill-blocked"
+        result = subprocess.run(command, input="0" * 63 + "1", capture_output=True, text=True, timeout=100)
+        assert result.returncode == 1 and "FUNDING_PENDING" in result.stderr, result.stderr
+        assert json.loads(result.stdout)["id"] == "fixture-refill-2" and len(fixture.sent) == 3
+        result = subprocess.run(["docker", "exec", container, "/faucet", "retry", "--request-id", "missing-refill"], capture_output=True, text=True, timeout=100)
+        assert result.returncode == 1 and not result.stdout.strip() and "FUNDING_NOT_FOUND" in result.stderr
+        with fixture.mutex:
+            fixture.mined_hashes.add(second["transaction_hash"])
+            fixture.nonces["0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"] = 2
+        eventually(lambda: funding_confirmed("fixture-refill-2"))
+        claim_broadcast_start = len(fixture.sent)
         eventually(lambda: request("status")[1].get("status") == "ready")
         application = {"request_id": "container-claim-012345", "address": "0x" + "11" * 20}
         code, job = request("claims", application)
@@ -160,7 +185,7 @@ def exercise(image):
         docker("restart", "-t", "10", container)
         eventually(lambda: len(fixture.sent) > before)
         assert request("status")[1]["address"] == address, "wallet rotated during restart"
-        assert len(set(fixture.sent[2:])) == 1, "recovery created another claim transaction"
+        assert len(set(fixture.sent[claim_broadcast_start:])) == 1, "recovery created another claim transaction"
         fixture.mined = True
         fixture.nonces[address.lower()] = 1
         eventually(lambda: request("claims/" + job["id"])[1].get("status") == "confirmed")
@@ -170,7 +195,7 @@ def exercise(image):
         code, rejected = request("claims", {"request_id": "another-claim-012345", "address": "0x" + "22" * 20},
                                  {"X-Forwarded-For": "203.0.113.77", "X-USDB-Faucet-Proxy": "forged"})
         assert code == 429 and rejected["error"]["code"] == "IP_DAILY_LIMIT", rejected
-        print("Faucet container checks passed: non-root wallet, funding recovery, nginx trust, durable claims, restart and confirmation.")
+        print("Faucet container checks passed: non-root wallet, automatic refill confirmation, consecutive funding, funding recovery, nginx trust, durable claims, restart and confirmation.")
 
 
 if __name__ == "__main__":

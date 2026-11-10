@@ -1,0 +1,28 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-faucet-auto-confirm-funding",
+  "type": "fixed",
+  "scopes": [
+    "gateway",
+    "deployment",
+    "documentation",
+    "testing"
+  ],
+  "summary": "水龙头补款自动同步链上确认，连续充值无需手动 retry",
+  "details": [
+    "后台自动核对已记录补款的规范链回执；新 fund 命令也先核对同一账户的旧记录，已确认或已失败的交易不再因遗留 pending 阻止下一笔补款。",
+    "确认不足时返回 FUNDING_PENDING 和上一笔恢复编号、交易哈希，明确新请求尚未提交；签名或记录生成前的失败不再输出空交易对象。",
+    "自动同步只查询回执，不签署或重播矿工交易；错误网络、RPC 失败和非规范链回执不会放行新补款，并保留并发账户保护。--retry 继续用于异常交易恢复。",
+    "保留现有钱包、账本和恢复编号；重启后自动核对未结束补款，无需数据迁移。"
+  ],
+  "operator_actions": [
+    "安装包含本改动的新版本后，执行 down、prepare --replace、preflight、up、check 更新 Explorer 容器；保留原水龙头卷。正常补款后用 faucet status 查看进度。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": true
+  },
+  "references": []
+}

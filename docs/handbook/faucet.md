@@ -41,7 +41,8 @@ usdb-explorer faucet status
 
 服务首次启动自动生成专用账户。`faucet status` 显示地址、余额（整数 atoms，1 USDB =
 10^18 atoms）、状态、预算占用，以及最近 20 笔补款的恢复编号与最后记录的状态。
-余额不足时暂停新申请，补款后自动恢复；补款的最新回执用 `fund --retry` 查询。
+余额不足时暂停新申请，补款后自动恢复。后台每轮（正常约 5 秒）自动核对补款回执，
+`faucet status` 显示最近记录的状态；达到配置确认数后自动记为 `confirmed`，无需手动确认。
 
 | 参数 | 默认值 | 含义 |
 | --- | --- | --- |
@@ -73,7 +74,16 @@ usdb-explorer faucet fund --amount 100
 
 终端提示隐藏输入矿工私钥。私钥通过标准输入传给容器内的一次性命令，不写入配置、日志、
 Docker 环境变量或账本；后台发放进程不保存它。命令显示补款恢复编号和交易哈希。
-显示 `pending` 只表示已广播，到账仍需等待出块与确认。
+显示 `pending` 只表示已提交，到账仍需等待出块与确认；正常流程不需要执行 `--retry`。
+第一笔确认后可直接再次运行 `faucet fund --amount ...`。新补款会先刷新同一账户的未结束记录，
+即使后台尚未刷新、或升级前遗留 `pending`，也不会因为旧记录未同步而阻止已确认后的下一笔。
+
+上一笔尚未出块或确认不足时，返回 `FUNDING_PENDING`，显示上一笔的恢复编号和交易哈希；
+本次新请求尚未提交。等待自动确认后重新运行本次补款即可。查看进度使用：
+
+```bash
+usdb-explorer faucet status
+```
 
 也可以指定便于识别的编号，从环境变量读取私钥：
 
@@ -90,7 +100,7 @@ unset USDB_MINER_PRIVATE_KEY
 同一编号只代表一笔补款，不能更换金额或矿工账户后重用。补款期间避免从同一矿工账户同时
 发起其他交易；已有待处理交易时命令会暂停，不抢占其交易序号。
 
-**超时、连接断开或确认到账时使用原编号重试，不创建新的补款编号：**
+**只有超时、连接断开、交易掉出交易池等异常恢复需要原编号重试；不要为同一次补款创建新编号：**
 
 ```bash
 usdb-explorer faucet fund --retry --request-id refill-20260919-01
@@ -100,7 +110,10 @@ usdb-explorer faucet fund --retry --request-id refill-20260919-01
 时会查不到记录（`FUNDING_NOT_FOUND`），可使用相同编号、金额和私钥重执行原命令。
 丢失编号时先查看 `faucet status` 中的 `funding` 列表。
 
-首版补款由命令明确触发，没有后台自动划款调度。也可以用普通钱包直接向水龙头地址转账。
+补款由命令明确触发，也可以用普通钱包直接向水龙头地址转账。后台只查询已记录补款的
+链上回执，不读取矿工私钥、不签署或重播矿工交易；需要重播时仍由 `--retry` 明确触发。
+RPC 失败、非规范链回执或确认不足不会被当作补款完成，也不会放行同一账户的新补款。
+没有后台自动补款调度。
 
 ## 部署、升级和备份
 
@@ -144,7 +157,8 @@ usdb-explorer up
 | `NODE_SYNCING` | 等待节点同步 |
 | `BROADCAST_UNCERTAIN` | 结果不明；领取后台重试原交易，补款用原编号 `--retry` |
 | `SENDER_HAS_PENDING_TRANSACTION` | 等待已有交易，避免多个程序同时使用同一账户 |
-| `FUNDING_PENDING_USE_RETRY` | 用 `faucet status` 找到未结束的补款编号并重试 |
+| `FUNDING_PENDING` | 上一笔仍待出块或确认；等待后台自动刷新，再提交新补款；异常恢复才使用上一笔编号 `--retry` |
+| `FUNDING_PENDING_USE_RETRY`（旧版本） | 旧版本需用 `faucet status` 找到未结束编号并 `--retry`；升级后自动核对 |
 | `NONCE_CONFLICT` / `NONCE_OR_STORAGE_CONFLICT` | 核查外部转账或深重组，保留账本和哈希，不清空重试 |
 | `WALLET_MISSING_RESTORE_BACKUP` / `STORAGE_IDENTITY_OR_IO_ERROR` | 核查卷权限、磁盘和网络，恢复匹配的钱包与账本 |
 | 长时间 `pending` | 检查出块、交易池和费用；自动加价替换尚未实现 |

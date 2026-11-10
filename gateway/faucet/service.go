@@ -224,7 +224,7 @@ func (s *Service) resume(ctx context.Context, j Job) error {
 	return broadcast(ctx, s.rpc, s.config, j)
 }
 
-// Run is the sole claim worker. Funding is explicit and never uses the miner key in this process.
+// Run processes claims and observes refill receipts; only operator commands sign miner transfers.
 func (s *Service) Run(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -236,6 +236,11 @@ func (s *Service) Run(ctx context.Context) {
 		}
 		if err != nil {
 			s.setStatus(safeCode(err), "", "")
+		}
+		// Refill observations must not replace the claim worker's health or trigger
+		// automatic miner spending. Retry transient read failures on the next cycle.
+		if err := s.RefreshFunding(cycle); err != nil {
+			log.Printf("Faucet funding refresh failed: %s", safeCode(err))
 		}
 		cancel()
 		s.pruneRates()
@@ -274,6 +279,14 @@ func (s *Service) Fund(ctx context.Context, id, amountText, keyText string) (Job
 	} else if !errors.Is(e, sql.ErrNoRows) {
 		return Job{}, errors.New("STORAGE_UNAVAILABLE")
 	}
+	// A mined refill may still be pending in an older ledger or between worker
+	// cycles. Reconcile it before allocating a nonce for this independent request.
+	if err := s.refreshFunding(ctx, sender); err != nil {
+		return Job{}, err
+	}
+	if pending, err := fundingBlocker(s.db.QueryRowContext(ctx, activeFundingQuery+" AND sender=? LIMIT 1", sender)); err != nil {
+		return pending, err
+	}
 	to, _ := address(s.sender())
 	signed, err := signedTransfer(ctx, s.rpc, s.config, key, to, amount)
 	if err != nil {
@@ -289,12 +302,10 @@ func (s *Service) Fund(ctx context.Context, id, amountText, keyText string) (Job
 		return Job{}, errors.New("STORAGE_UNAVAILABLE")
 	}
 	defer tx.Rollback()
-	var active int
-	if err = tx.QueryRow("SELECT COUNT(*) FROM jobs WHERE kind='fund' AND sender=? AND status NOT IN ('confirmed','failed')", sender).Scan(&active); err != nil {
-		return Job{}, errors.New("STORAGE_UNAVAILABLE")
-	}
-	if active > 0 {
-		return Job{}, errors.New("FUNDING_PENDING_USE_RETRY")
+	// Another operator process can start a refill while this one signs. Keep the
+	// sender gate inside the write transaction as well as the earlier fast path.
+	if pending, err := fundingBlocker(tx.QueryRowContext(ctx, activeFundingQuery+" AND sender=? LIMIT 1", sender)); err != nil {
+		return pending, err
 	}
 	if err = insertJob(tx, j); err != nil {
 		return Job{}, errors.New("NONCE_OR_REQUEST_CONFLICT")

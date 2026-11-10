@@ -135,6 +135,7 @@ class FaucetDeploymentTests(unittest.TestCase):
         self.assertNotIn(key, str(calls[0][0]))
         self.assertNotIn(key, output.getvalue())
         self.assertIn("Funding recovery ID: refill-1", output.getvalue())
+        self.assertIn("confirmation is tracked automatically", output.getvalue())
         for path in (self.source, self.state / "config.json", self.state / "compose.json"):
             self.assertNotIn(key, path.read_text())
 
@@ -148,6 +149,35 @@ class FaucetDeploymentTests(unittest.TestCase):
             self.assertNotIn("secret", str(raised.exception))
             self.assertEqual(run.call_args.kwargs["input"], "")
             self.assertIn("retry", run.call_args.args[0])
+
+
+    def test_pending_funding_identifies_previous_transfer_and_waits_for_auto_confirmation(self):
+        self.enable()
+        args = self.args("fund", "--amount", "10", "--request-id", "refill-2", "--miner-key-env", "FAUCET_TEST_KEY")
+        previous = {"id": "refill-1", "status": "confirming", "transaction_hash": "0xabc"}
+        output = io.StringIO()
+        with mock.patch.dict(os.environ, {"FAUCET_TEST_KEY": "ab" * 32}), mock.patch.object(CLI.subprocess, "run") as run, contextlib.redirect_stdout(output):
+            run.return_value = subprocess.CompletedProcess([], 1, json.dumps(previous), "Faucet operation failed: FUNDING_PENDING\n")
+            with self.assertRaisesRegex(ValueError, "this new request was not submitted") as raised:
+                PUBLIC.execute(args, self.state)
+        self.assertIn("automatic confirmation", str(raised.exception))
+        self.assertIn("Previous funding", output.getvalue())
+        self.assertIn('"id": "refill-1"', output.getvalue())
+        self.assertIn("0xabc", output.getvalue())
+        self.assertNotIn("Funding submitted", output.getvalue())
+
+    def test_funding_failures_do_not_print_empty_receipts(self):
+        self.enable()
+        args = self.args("fund", "--retry", "--request-id", "missing-refill")
+        for response in ('', '{"id":"","address":"","amount_atoms":"","created_at":0,"status":""}'):
+            with self.subTest(response=response):
+                output = io.StringIO()
+                with mock.patch.object(CLI.subprocess, "run") as run, contextlib.redirect_stdout(output):
+                    run.return_value = subprocess.CompletedProcess([], 1, response, "Faucet operation failed: FUNDING_NOT_FOUND\n")
+                    with self.assertRaisesRegex(ValueError, "FUNDING_NOT_FOUND"):
+                        PUBLIC.execute(args, self.state)
+                self.assertNotIn('"id": ""', output.getvalue())
+                self.assertNotIn("Funding submitted", output.getvalue())
 
 
 if __name__ == "__main__":
