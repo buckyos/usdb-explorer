@@ -42,7 +42,10 @@ func sanitizeExplorer(value any) {
 }
 
 func (g *gateway) explorer(w http.ResponseWriter, r *http.Request) {
-	if path.Clean(r.URL.Path) != r.URL.Path {
+	// Blockscout uses a terminal slash for some lists (notably Top Accounts).
+	// Accept one slash while still rejecting traversal and duplicate separators.
+	canonical := strings.TrimSuffix(r.URL.Path, "/")
+	if path.Clean(canonical) != canonical {
 		rpcError(w, 400, "Non-canonical explorer path")
 		return
 	}
@@ -54,7 +57,7 @@ func (g *gateway) explorer(w http.ResponseWriter, r *http.Request) {
 	part := strings.TrimPrefix(r.URL.Path, "/api/v2/")
 	category := strings.SplitN(part, "/", 2)[0]
 	switch category {
-	case "blocks", "transactions", "addresses", "smart-contracts", "tokens", "search", "main-page":
+	case "blocks", "transactions", "internal-transactions", "addresses", "smart-contracts", "tokens", "search", "main-page":
 	default:
 		http.NotFound(w, r)
 		return

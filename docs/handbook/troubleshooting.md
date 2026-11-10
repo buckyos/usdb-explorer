@@ -11,6 +11,7 @@
 | 外网页面正常，但服务器 check 仍超时 | [公网地址回访](#外网正常但服务器上的-check-超时) |
 | 节点 RPC 正常，公开 RPC 503，rpc-host 反复重启 | [残留 RPC socket](#rpc-host-因残留-socket-反复重启) |
 | HTML 打开，但数据请求失败 | [页面和 API 地址](#页面打开但数据不显示) |
+| Internal transactions 或 Top accounts 显示加载错误 | [列表路由兼容](#internal-transactions-或-top-accounts-加载失败) |
 | 控制台反复出现 `/socket/v2/websocket` 连接失败 | [WebSocket 与缓存](#websocket-与页面缓存) |
 | 域名 IPv4 正常、IPv6 失败 | [双栈入口](networking.md#ipv4-与-ipv6-双栈入口) |
 | 高度 35 超过当前链头、旧交易找不到 | [旧采样配置](#旧采样配置) |
@@ -184,6 +185,19 @@ usdb-explorer check
 API 的 HTTP 200 可能来自旧数据库记录；如果尾块已不属于节点当前主链，必须继续核验该高度的
 重索引，不能只凭页面打开或容器 healthy 宣称恢复，也不能假定本次 socket 修复已纠正所有旧记录。
 内部调用解析失败则另查下面的追踪兼容问题。
+
+## Internal transactions 或 Top accounts 加载失败
+
+旧版网关可能在 Internal transactions 页面请求 `/api/v2/internal-transactions` 时返回 404，
+或在 Top accounts 请求 `/api/v2/addresses/` 时返回 400 `Non-canonical explorer path`。
+这是公开网关路由缺失和尾斜杠兼容问题；不能据此认定后端不支持这些列表。
+
+包含修复的网关允许内部调用列表，并接受允许路径的单个尾斜杠，保留分页及筛选参数。
+安装相应版本后执行 `down → prepare --replace → preflight → up → check`，替换网关容器，
+然后刷新两个页面。仅更新 CLI 不会改变运行中的网关；不需要清空数据库或重新索引。
+
+若这两个列表 API 已返回 200 但没有记录，继续检查索引进度和内部调用追踪日志。
+公开入口仍不提供未经适配的 `/api/v2/stats` 等接口，不应通过开放所有后端接口修复页面。
 
 ## 内部调用索引报 extract_transactions_params 错误
 

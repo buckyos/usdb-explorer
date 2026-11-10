@@ -239,7 +239,11 @@ class IngressContainers(unittest.TestCase):
         origin = "http://127.0.0.1:" + port
         self.docker("exec", name, "nginx", "-t")
         for route, expected in (("/rpc", "/"), ("/network.json", "/network.json"),
-                                ("/api/v2/blocks?test=1", "/api/v2/blocks?test=1"), ("/blocks/35", "frontend:/blocks/35")):
+                                ("/api/v2/blocks?test=1", "/api/v2/blocks?test=1"),
+                                ("/api/v2/addresses/?items_count=50", "/api/v2/addresses/?items_count=50"),
+                                ("/api/v2/internal-transactions?index=2&block_number=154402",
+                                 "/api/v2/internal-transactions?index=2&block_number=154402"),
+                                ("/blocks/35", "frontend:/blocks/35")):
             status, body, _ = self.request(origin + route, method="POST" if route == "/rpc" else "GET")
             self.assertEqual((status, body), (200, expected))
         self.assertEqual(self.request(origin + "/socket")[0], 404)

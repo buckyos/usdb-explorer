@@ -1,0 +1,27 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-blockchain-list-routes",
+  "type": "fixed",
+  "scopes": [
+    "gateway",
+    "explorer",
+    "documentation",
+    "testing"
+  ],
+  "summary": "修复 Internal transactions 和 Top accounts 页面因网关路由限制而加载失败",
+  "details": [
+    "开放 Internal transactions 列表的只读 API，沿用网关限流、并发与响应大小限制，保留分页和筛选参数。",
+    "允许已开放 API 路径携带单个尾斜杠，使 Top accounts 的 /api/v2/addresses/ 请求正常转发；仍拒绝路径穿越、重复斜杠、未开放接口和写请求。",
+    "两个页面继续展示后端已索引数据；不改变追踪索引方式、余额精度及 USDB 供应量和奖励字段的验收范围。"
+  ],
+  "operator_actions": [
+    "安装包含修复的新版本后执行 usdb-explorer down、usdb-explorer prepare --replace、usdb-explorer preflight、usdb-explorer up、usdb-explorer check，替换网关容器并刷新两个页面；保留现有配置、数据库和数据卷。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": true
+  },
+  "references": []
+}
