@@ -26,8 +26,12 @@ func run() error {
 	flags := flag.NewFlagSet(action, flag.ContinueOnError)
 	id := flags.String("request-id", "", "Funding recovery ID")
 	amount := flags.String("amount", "", "USDB amount")
+	limit := flags.Int("limit", faucet.DefaultStatusLimit, "Recent claims and refills to show (1..100)")
 	if err := flags.Parse(os.Args[2:]); err != nil {
 		return errors.New("invalid command options")
+	}
+	if action == "status" && (*limit < 1 || *limit > faucet.MaxStatusLimit) {
+		return errors.New("INVALID_LIMIT")
 	}
 	c, err := faucet.ParseConfig(os.Getenv("FAUCET_CONFIG"))
 	if err != nil {
@@ -81,10 +85,6 @@ func run() error {
 	defer cancel()
 	switch action {
 	case "status":
-		value, e := s.OperatorStatus()
-		if e != nil {
-			return e
-		}
 		// Read the running worker's state: recomputing only its balance here would
 		// incorrectly report ready while it is paused on a nonce or broadcast error.
 		req, e := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:8080/api/faucet/v1/status", nil)
@@ -102,7 +102,10 @@ func run() error {
 		if response.StatusCode != 200 || json.NewDecoder(io.LimitReader(response.Body, 65536)).Decode(&live) != nil || !live.Enabled {
 			return errors.New("WORKER_UNAVAILABLE")
 		}
-		value["faucet"] = live
+		value, e := s.OperatorStatus(ctx, live, *limit)
+		if e != nil {
+			return e
+		}
 		_ = json.NewEncoder(os.Stdout).Encode(value)
 		return nil
 	case "fund":

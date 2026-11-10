@@ -1,4 +1,5 @@
 """Operator entry points for the optional faucet, including one-shot miner-funded refills."""
+import argparse
 from datetime import datetime, timezone
 import getpass
 import json
@@ -11,6 +12,17 @@ import sys
 import tempfile
 
 from faucet_config import DEFAULTS, amount
+
+
+def history_limit(value):
+    """Bound local history output before invoking the signer container."""
+    try:
+        limit = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("limit must be an integer from 1 to 100") from None
+    if not 1 <= limit <= 100:
+        raise argparse.ArgumentTypeError("limit must be an integer from 1 to 100")
+    return limit
 
 
 def add_parser(actions):
@@ -27,6 +39,9 @@ def add_parser(actions):
             enabled.add_argument("--disable", action="store_true")
             for key in ("claim_amount", "daily_budget", *DEFAULTS):
                 action.add_argument("--" + key.replace("_", "-"), type=int if type(DEFAULTS.get(key)) is int else str)
+        if name == "status":
+            action.add_argument("--limit", type=history_limit, default=20,
+                                help="Recent claims and refills to display, each (default: 20, maximum: 100)")
         if name == "fund":
             action.add_argument("--amount", help="USDB to transfer from the miner account")
             action.add_argument("--request-id", help="Stable recovery ID; generated and printed if omitted")
@@ -77,6 +92,8 @@ def execute(args, root):
     if not read_json(root / "config.json").get("faucet", {}).get("enabled"):
         raise ValueError("faucet is disabled in the prepared deployment; configure it and re-prepare first")
     options = [args.faucet_command]
+    if args.faucet_command == "status" and args.limit != 20:
+        options += ["--limit", str(args.limit)]
     private_key = ""
     if args.faucet_command == "fund":
         if args.retry:

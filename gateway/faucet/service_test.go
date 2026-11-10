@@ -67,7 +67,11 @@ func (f *fakeChain) Call(_ context.Context, writer bool, method string, params a
 				hash = "0x" + strings.Repeat("d", 64)
 			}
 		}
-		result = map[string]string{"hash": hash}
+		number := p[0].(string)
+		if number == "latest" {
+			number = fmt.Sprintf("0x%x", f.head)
+		}
+		result = map[string]string{"hash": hash, "number": number}
 	case "eth_syncing":
 		result = false
 	case "eth_getCode":

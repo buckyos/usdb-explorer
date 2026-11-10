@@ -29,6 +29,7 @@ class ChainFixture:
         self.balance = "0x0"
         self.mined = False
         self.mined_hashes = set()
+        self.fail_method = ""
         self.nonces = {}
         self.sent = []
         self.mutex = threading.Lock()
@@ -36,11 +37,14 @@ class ChainFixture:
     def respond(self, payload):
         method, params = payload["method"], payload["params"]
         with self.mutex:
+            if method == self.fail_method:
+                return {"jsonrpc": "2.0", "id": payload["id"], "error": {"code": -32000, "message": "injected read failure"}}
             values = {"eth_chainId": hex(202610030), "eth_syncing": False, "eth_getBalance": self.balance,
                       "eth_gasPrice": hex(10**9),
                       "eth_getCode": "0x", "eth_blockNumber": "0xc"}
             if method == "eth_getBlockByNumber":
-                result = {"hash": "0x" + ("a" if params[0] == "0x0" else "c") * 64}
+                result = {"hash": "0x" + ("a" if params[0] == "0x0" else "c") * 64,
+                          "number": "0xc" if params[0] == "latest" else params[0]}
             elif method == "eth_getTransactionReceipt":
                 result = {"transactionHash": params[0], "blockHash": "0x" + "c" * 64,
                           "blockNumber": "0xa", "status": "0x1"} if self.mined or params[0] in self.mined_hashes else None
@@ -195,7 +199,26 @@ def exercise(image):
         code, rejected = request("claims", {"request_id": "another-claim-012345", "address": "0x" + "22" * 20},
                                  {"X-Forwarded-For": "203.0.113.77", "X-USDB-Faucet-Proxy": "forged"})
         assert code == 429 and rejected["error"]["code"] == "IP_DAILY_LIMIT", rejected
-        print("Faucet container checks passed: non-root wallet, automatic refill confirmation, consecutive funding, funding recovery, nginx trust, durable claims, restart and confirmation.")
+        report = json.loads(docker("exec", container, "/faucet", "status", "--limit", "1"))
+        assert report["chain"]["status"] == "ok" and report["chain"]["balance_usdb"] == "1000", report
+        assert report["chain"]["nonce"] == "1" and report["chain"]["block_number"] == 12
+        assert report["faucet"]["balance_usdb"] == "1000"
+        assert len(report["claims"]) == 1 and report["claims"][0]["transaction_hash"] == job["transaction_hash"]
+        assert report["claims"][0]["status"] == "confirmed" and report["claims"][0]["amount_usdb"] == "1"
+        assert report["claims"][0]["created_at_utc"].endswith("Z")
+        assert len(report["funding"]) == 1 and report["funding"][0]["id"] == "fixture-refill-2"
+        assert report["history"] == {"limit": 1, "funding_has_more": True, "claims_has_more": False}
+        public = request("status")[1]
+        assert not any(key in public for key in ("chain", "claims", "funding", "history"))
+        result = subprocess.run(["docker", "exec", container, "/faucet", "status", "--limit", "101"], capture_output=True, text=True, timeout=100)
+        assert result.returncode == 1 and "INVALID_LIMIT" in result.stderr and not result.stdout.strip()
+        # RPC failures keep the local records visible without inventing a live balance.
+        with fixture.mutex:
+            fixture.fail_method = "eth_getBalance"
+        unavailable = json.loads(docker("exec", container, "/faucet", "status", "--limit", "1"))
+        assert unavailable["chain"]["status"] == "unavailable" and unavailable["chain"]["error"] == "RPC_REJECTED"
+        assert "balance_usdb" not in unavailable["chain"] and len(unavailable["claims"]) == 1
+        print("Faucet container checks passed: non-root wallet, automatic refill confirmation, consecutive funding, funding recovery, nginx trust, durable claims, restart, live balances and bounded history.")
 
 
 if __name__ == "__main__":

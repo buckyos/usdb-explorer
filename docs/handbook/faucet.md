@@ -40,7 +40,7 @@ usdb-explorer faucet status
 `status`、`fund` 支持 `--state-dir`，用于选择不同的已准备部署。
 
 服务首次启动自动生成专用账户。`faucet status` 显示地址、余额（整数 atoms，1 USDB =
-10^18 atoms）、状态、预算占用，以及最近 20 笔补款的恢复编号与最后记录的状态。
+10^18 atoms，同时显示精确 USDB 金额）、状态、预算占用，以及最近的补款和领取申请记录。
 余额不足时暂停新申请，补款后自动恢复。后台每轮（正常约 5 秒）自动核对补款回执，
 `faucet status` 显示最近记录的状态；达到配置确认数后自动记为 `confirmed`，无需手动确认。
 
@@ -62,6 +62,36 @@ usdb-explorer faucet status
 
 所有额度都是本实例范围，不是全网身份限额。IPv6 按 /64 聚合，共享 NAT 出口可能共用 IP 额度。
 IP 原文不写入账本，用与本钱包绑定的摘要计数。验证码、跨实例额度和邀请系统暂列 TODO。
+
+## 查看余额与最近申请
+
+```bash
+usdb-explorer faucet status              # 默认最近 20 条领取、20 条补款
+usdb-explorer faucet status --limit 10   # 两类记录分别最多 10 条
+```
+
+`--limit` 允许 1–100，记录按申请时间倒序排列，同一秒按写入顺序倒序。
+`history.claims_has_more` 和 `history.funding_has_more` 表示仍有更早的记录；只限制展示，不清理账本。
+
+| 输出 | 含义 |
+| --- | --- |
+| `faucet` | 后台真实运行状态与上次观察的余额／预算占用；`balance_usdb`、`reserved_usdb` 为精确十进制，`updated_at_utc` 为观察时间 |
+| `chain` | 本次命令实时查询的链上信息；`balance_usdb` / `balance_atoms` 为指定区块的已入块余额，`pending_balance_usdb` / `pending_balance_atoms` 为节点 pending 状态估计；另有区块高度、哈希、`nonce`、`pending_nonce` 和查询时间 |
+| `claims` | 最近已持久化的领取申请，包含编号、收款地址、金额、UTC 时间、状态和已有的交易哈希；排队、等待确认、成功及失败记录都可见 |
+| `funding` | 最近的命令补款记录，包含可供恢复使用的编号和相同的金额／时间展示字段 |
+
+例如 `10989978999999853000` atoms 会显示为 `10.989978999999853` USDB；金额始终使用
+十进制字符串，不经过浮点数。`chain.balance_usdb` 是最新已入块状态，不能等同于配置确认深度
+后的最终余额；pending 数值是节点当时的估计。
+
+链上查询核对网络身份，并固定已入块余额和 nonce 的读取高度、再次核对区块哈希。
+RPC 故障、错误网络或查询期间重组时，`chain.status` 显示 `unavailable` 和脱敏错误码，
+不显示假的零余额或用缓存充当实时值；仍返回已有账本记录。链上查询失败不会把后台状态改成
+`ready`，查看健康情况应同时关注 `faucet.status` 与 `chain.status`。
+
+这些记录仅来自本实例账本，不是该地址的全部链上交易列表；普通钱包直接转入的补款不会
+自动新增命令补款记录，被限流等原因在受理前拒绝的请求也不在 `claims` 中。
+查询不会签名、广播交易或修改申请状态。上述详细历史仅供本地运维命令使用，公共状态接口不提供记录列表。
 
 ## 从矿工账户补款
 

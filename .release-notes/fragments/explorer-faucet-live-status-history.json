@@ -1,0 +1,28 @@
+{
+  "schema_version": "usdb-change-fragment:v1",
+  "change_id": "explorer-faucet-live-status-history",
+  "type": "added",
+  "scopes": [
+    "gateway",
+    "deployment",
+    "documentation",
+    "testing"
+  ],
+  "summary": "水龙头状态增加实时链上余额、易读金额和可限制条数的领取记录",
+  "details": [
+    "faucet status 保留后台状态与原有 atoms 字段，补充精确 USDB 金额和 UTC 时间；新增 chain 区域实时查询已入块／pending 余额、nonce、区块高度和哈希。",
+    "新增 claims 领取账本记录；--limit N 同时限制领取和补款列表，默认各 20 条，允许 1–100，按时间和写入顺序倒序展示并标记是否还有更早记录。",
+    "查询验证网络身份及读取期间的区块哈希；链上查询失败明确显示 unavailable，保留本地记录，不用缓存或零余额冒充实时数据，也不覆盖后台故障状态。",
+    "状态查询不签名、不广播、不修改申请记录；详细历史仅在本地运维命令展示，不新增公共历史接口。"
+  ],
+  "operator_actions": [
+    "更新安装并执行 down、prepare --replace、preflight、up、check 应用新容器；随后使用 faucet status 或 faucet status --limit 10 查询。"
+  ],
+  "compatibility": {
+    "network_reset": false,
+    "data_rebuild": false,
+    "config_change": false,
+    "restart_required": true
+  },
+  "references": []
+}

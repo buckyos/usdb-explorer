@@ -70,3 +70,14 @@ through this API. Recorded refills are automatically checked for canonical confi
 new funding commands also reconcile the sender's outstanding refill first. Explicit retry
 is only needed to recover uncertain or dropped transfers, not to confirm normal deposits.
 Recovery and policy details: [faucet handbook](handbook/faucet.md).
+
+## Local operator status
+
+`usdb-explorer faucet status --limit N` adds live chain balances and bounded local
+claim/funding history for operators (default 20 per list, range 1–100). Decimal
+USDB strings supplement integer atoms without changing existing amount fields.
+The worker snapshot and fresh chain observation are separate: an RPC failure is
+reported as `chain.status=unavailable` while local history remains available.
+This is a local command only; the public `/status` response and claim routes do
+not expose these history lists. Full field semantics are in the
+[faucet handbook](handbook/faucet.md#查看余额与最近申请).

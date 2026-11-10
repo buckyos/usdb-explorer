@@ -180,5 +180,27 @@ class FaucetDeploymentTests(unittest.TestCase):
                 self.assertNotIn("Funding submitted", output.getvalue())
 
 
+
+    def test_status_history_limit_is_bounded_and_forwarded(self):
+        self.enable()
+        for limit in (1, 20, 50, 100):
+            with self.subTest(limit=limit), mock.patch.object(CLI.subprocess, "run") as run:
+                run.return_value = subprocess.CompletedProcess([], 0, '{"claims":[],"funding":[]}', "")
+                with contextlib.redirect_stdout(io.StringIO()):
+                    PUBLIC.execute(self.args("status", "--limit", str(limit)), self.state)
+                command = run.call_args.args[0]
+                if limit == 20:
+                    self.assertEqual(command[-1], "status")
+                else:
+                    self.assertEqual(command[-3:], ["status", "--limit", str(limit)])
+                self.assertEqual(run.call_args.kwargs["input"], "")
+        self.assertEqual(self.args("status").limit, 20)
+        for value in ("0", "-1", "101", "1.5", "all"):
+            with self.subTest(value=value), contextlib.redirect_stderr(io.StringIO()), mock.patch.object(CLI.subprocess, "run") as run:
+                with self.assertRaises(SystemExit):
+                    self.args("status", "--limit", value)
+                run.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
